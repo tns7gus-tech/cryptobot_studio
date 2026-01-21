@@ -10,7 +10,7 @@ from loguru import logger
 from config import settings
 from upbit_client import UpbitClient, OrderResult
 from indicators import detect_fvg, FVGResult
-from strategies import FVGStrategy, Signal
+from strategies import RSIEMAStrategy, Signal
 from telegram_notifier import TelegramNotifier
 from risk_manager import RiskManager
 
@@ -57,19 +57,24 @@ class AutoTrader:
         self.notifier = TelegramNotifier()
         self.risk_manager = RiskManager()
         
-        # ICT FVG 전략 (30분봉)
-        self.fvg_strategy = FVGStrategy(min_gap_percent=0.05)
-        self.active_strategy = self.fvg_strategy
+        # RSI + EMA 전략 (5분봉)
+        self.strategy = RSIEMAStrategy(
+            rsi_period=14,
+            rsi_oversold=35,
+            rsi_overbought=65,
+            ema_fast=9,
+            ema_slow=21
+        )
+        self.active_strategy = self.strategy
         
-        # 활성 FVG 상태 추적
-        self._active_fvg = None
-        self._in_position = False  # 포지션 보유 여부
+        # 포지션 상태
+        self._in_position = False
         
         mode_str = "🔔 알림 전용" if self.mode == "semi" else "🤖 자동매매"
         logger.info(f"💹 AutoTrader 초기화 완료 ({mode_str})")
         logger.info(f"   - 마켓: {self.symbol}")
         logger.info(f"   - 1회 금액: ₩{settings.trade_amount:,.0f}")
-        logger.info(f"   - 전략: ICT Fair Value Gap (30분봉)")
+        logger.info(f"   - 전략: RSI + EMA 크로스오버 (5분봉)")
     
     async def start(self):
         """Initialize components"""
@@ -81,13 +86,13 @@ class AutoTrader:
     
     def analyze(self) -> Optional[Signal]:
         """
-        현재 시장 분석 (30분봉 ICT FVG 전략)
+        현재 시장 분석 (5분봉 RSI + EMA 전략)
         
         Returns:
             Signal 객체
         """
-        # OHLCV 데이터 조회 (30분봉)
-        df = self.upbit.get_ohlcv(self.symbol, interval="minute30", count=100)
+        # OHLCV 데이터 조회 (5분봉)
+        df = self.upbit.get_ohlcv(self.symbol, interval="minute5", count=100)
         if df is None:
             logger.error("OHLCV 데이터 조회 실패")
             return None
@@ -97,20 +102,10 @@ class AutoTrader:
             logger.error("현재가 조회 실패")
             return None
         
-        # FVG 탐지 (30분봉)
-        fvg = detect_fvg(df, min_gap_percent=0.05)
-        
-        if fvg and fvg.found:
-            logger.info(f"📊 {fvg}")
-            self._active_fvg = fvg
-        else:
-            logger.debug("FVG 미발견")
-        
-        # ICT FVG 전략 분석
-        signal = self.fvg_strategy.analyze(
+        # RSI + EMA 전략 분석
+        signal = self.strategy.analyze(
             ohlcv_df=df,
-            current_price=current_price,
-            fvg_result=fvg
+            current_price=current_price
         )
         
         logger.info(f"🎯 신호: {signal}")

@@ -203,11 +203,11 @@ async def main():
     logger.info(f"📊 마켓: {settings.trade_symbol}")
     logger.info(f"💰 1회 금액: ₩{settings.trade_amount:,.0f}")
     logger.info(f"⚙️ 모드: {settings.bot_mode}")
-    logger.info(f"📈 전략: ICT Fair Value Gap (30분봉)")
+    logger.info(f"📈 전략: RSI + EMA 크로스오버 (5분봉)")
     logger.info("")
     
-    # 5분 주기로 분석 (30분봉 기반이지만 자주 체크해서 진입 타이밍 포착)
-    orchestrator = CryptoBotOrchestrator(check_interval=300)
+    # 1분 주기로 분석 (5분봉 기반, 자주 체크해서 진입 타이밍 빠르게 포착)
+    orchestrator = CryptoBotOrchestrator(check_interval=60)
     
     # Cloud Run 헬스체크용 HTTP 서버
     async def health_check(request):

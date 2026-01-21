@@ -39,6 +39,138 @@ class BaseStrategy(ABC):
 
 
 
+class RSIEMAStrategy(BaseStrategy):
+    """
+    RSI + EMA 크로스오버 전략 (5분봉 스캘핑)
+    
+    전문가들이 가장 보편적으로 사용하는 조합:
+    - RSI 과매도(30 이하) + EMA 골든크로스 = 매수
+    - RSI 과매수(70 이상) + EMA 데드크로스 = 매도
+    
+    추가 조건:
+    - 가격이 EMA20 위에 있어야 매수 (상승 추세 확인)
+    - 가격이 EMA20 아래에 있어야 매도 (하락 추세 확인)
+    """
+    
+    def __init__(
+        self,
+        rsi_period: int = 14,
+        rsi_oversold: int = 35,  # 5분봉은 덜 극단적으로
+        rsi_overbought: int = 65,
+        ema_fast: int = 9,
+        ema_slow: int = 21
+    ):
+        self.rsi_period = rsi_period
+        self.rsi_oversold = rsi_oversold
+        self.rsi_overbought = rsi_overbought
+        self.ema_fast = ema_fast
+        self.ema_slow = ema_slow
+    
+    @property
+    def name(self) -> str:
+        return "RSI_EMA"
+    
+    def analyze(
+        self,
+        ohlcv_df=None,
+        current_price: float = None,
+        **kwargs
+    ) -> Signal:
+        """
+        RSI + EMA 크로스오버 분석
+        """
+        from indicators import calculate_rsi, calculate_ema
+        
+        if ohlcv_df is None or len(ohlcv_df) < 30:
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.0,
+                reason="데이터 부족"
+            )
+        
+        prices = ohlcv_df['close']
+        current_price = current_price or float(prices.iloc[-1])
+        
+        # RSI 계산
+        rsi = calculate_rsi(prices, period=self.rsi_period, 
+                           buy_threshold=self.rsi_oversold,
+                           sell_threshold=self.rsi_overbought)
+        
+        if rsi is None:
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.0,
+                reason="RSI 계산 실패"
+            )
+        
+        # EMA 계산 (현재 및 이전 값)
+        ema_fast_series = prices.ewm(span=self.ema_fast, adjust=False).mean()
+        ema_slow_series = prices.ewm(span=self.ema_slow, adjust=False).mean()
+        
+        ema_fast_now = float(ema_fast_series.iloc[-1])
+        ema_fast_prev = float(ema_fast_series.iloc[-2])
+        ema_slow_now = float(ema_slow_series.iloc[-1])
+        ema_slow_prev = float(ema_slow_series.iloc[-2])
+        
+        # 골든크로스: EMA9가 EMA21을 상향 돌파
+        golden_cross = ema_fast_prev <= ema_slow_prev and ema_fast_now > ema_slow_now
+        # 데드크로스: EMA9가 EMA21을 하향 돌파
+        death_cross = ema_fast_prev >= ema_slow_prev and ema_fast_now < ema_slow_now
+        
+        # 추세 확인
+        is_uptrend = current_price > ema_slow_now
+        is_downtrend = current_price < ema_slow_now
+        
+        # 매수 신호: RSI 과매도 영역 + 상승 추세
+        if rsi.value < self.rsi_oversold and is_uptrend:
+            confidence = min(0.9, 0.6 + (self.rsi_oversold - rsi.value) * 0.02)
+            return Signal(
+                action="BUY",
+                strategy=self.name,
+                confidence=confidence,
+                reason=f"RSI {rsi.value:.1f} 과매도 + 상승추세"
+            )
+        
+        # 강한 매수 신호: 골든크로스 + RSI 중립 이하
+        if golden_cross and rsi.value < 50:
+            return Signal(
+                action="BUY",
+                strategy=self.name,
+                confidence=0.85,
+                reason=f"EMA 골든크로스 + RSI {rsi.value:.1f}"
+            )
+        
+        # 매도 신호: RSI 과매수 영역 + 하락 추세
+        if rsi.value > self.rsi_overbought and is_downtrend:
+            confidence = min(0.9, 0.6 + (rsi.value - self.rsi_overbought) * 0.02)
+            return Signal(
+                action="SELL",
+                strategy=self.name,
+                confidence=confidence,
+                reason=f"RSI {rsi.value:.1f} 과매수 + 하락추세"
+            )
+        
+        # 강한 매도 신호: 데드크로스 + RSI 중립 이상
+        if death_cross and rsi.value > 50:
+            return Signal(
+                action="SELL",
+                strategy=self.name,
+                confidence=0.85,
+                reason=f"EMA 데드크로스 + RSI {rsi.value:.1f}"
+            )
+        
+        # 기본: HOLD
+        trend_str = "상승" if is_uptrend else "하락" if is_downtrend else "횡보"
+        return Signal(
+            action="HOLD",
+            strategy=self.name,
+            confidence=0.5,
+            reason=f"RSI {rsi.value:.1f}, {trend_str}추세"
+        )
+
+
 class BollingerBandStrategy(BaseStrategy):
     """
     볼린저밴드 기반 매매 전략
