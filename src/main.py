@@ -203,7 +203,7 @@ async def main():
     logger.info(f"📊 마켓: {settings.trade_symbol}")
     logger.info(f"💰 1회 금액: ₩{settings.trade_amount:,.0f}")
     logger.info(f"⚙️ 모드: {settings.bot_mode}")
-    logger.info(f"📈 전략: RSI + EMA 크로스오버 (5분봉)")
+    logger.info(f"📈 전략: MACD 크로스 + 거래량 3배 (5분봉)")
     logger.info("")
     
     # 1분 주기로 분석 (5분봉 기반, 자주 체크해서 진입 타이밍 빠르게 포착)

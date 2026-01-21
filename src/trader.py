@@ -10,7 +10,7 @@ from loguru import logger
 from config import settings
 from upbit_client import UpbitClient, OrderResult
 from indicators import detect_fvg, FVGResult
-from strategies import RSIEMAStrategy, Signal
+from strategies import MACDVolumeStrategy, Signal
 from telegram_notifier import TelegramNotifier
 from risk_manager import RiskManager
 
@@ -57,13 +57,12 @@ class AutoTrader:
         self.notifier = TelegramNotifier()
         self.risk_manager = RiskManager()
         
-        # RSI + EMA 전략 (5분봉)
-        self.strategy = RSIEMAStrategy(
-            rsi_period=14,
-            rsi_oversold=35,
-            rsi_overbought=65,
-            ema_fast=9,
-            ema_slow=21
+        # MACD + 거래량 전략 (5분봉)
+        self.strategy = MACDVolumeStrategy(
+            macd_fast=12,
+            macd_slow=26,
+            macd_signal=9,
+            volume_multiplier=3.0  # 이전 봉 대비 3배 거래량
         )
         self.active_strategy = self.strategy
         
@@ -74,7 +73,7 @@ class AutoTrader:
         logger.info(f"💹 AutoTrader 초기화 완료 ({mode_str})")
         logger.info(f"   - 마켓: {self.symbol}")
         logger.info(f"   - 1회 금액: ₩{settings.trade_amount:,.0f}")
-        logger.info(f"   - 전략: RSI + EMA 크로스오버 (5분봉)")
+        logger.info(f"   - 전략: MACD 크로스 + 거래량 3배 (5분봉)")
     
     async def start(self):
         """Initialize components"""

@@ -34,9 +34,123 @@ class BaseStrategy(ABC):
     @abstractmethod
     def analyze(self, **kwargs) -> Signal:
         pass
-
-
-
+class MACDVolumeStrategy(BaseStrategy):
+    """
+    MACD 크로스 + 거래량 급증 전략
+    
+    업비트 강세/약세지표의 "MACD크로스" 기반:
+    - MACD 골든크로스(파랑) + 거래량 3배 이상 = 매수
+    - MACD 데드크로스(빨강) + 거래량 3배 이상 = 매도
+    
+    거래량 조건이 충족되어야만 매매 실행 (노이즈 필터링)
+    """
+    
+    def __init__(
+        self,
+        macd_fast: int = 12,
+        macd_slow: int = 26,
+        macd_signal: int = 9,
+        volume_multiplier: float = 3.0  # 이전 봉 대비 거래량 배수
+    ):
+        self.macd_fast = macd_fast
+        self.macd_slow = macd_slow
+        self.macd_signal = macd_signal
+        self.volume_multiplier = volume_multiplier
+    
+    @property
+    def name(self) -> str:
+        return "MACD_Volume"
+    
+    def analyze(
+        self,
+        ohlcv_df=None,
+        current_price: float = None,
+        **kwargs
+    ) -> Signal:
+        """
+        MACD 크로스 + 거래량 급증 분석
+        """
+        if ohlcv_df is None or len(ohlcv_df) < 35:
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.0,
+                reason="데이터 부족"
+            )
+        
+        prices = ohlcv_df['close']
+        volumes = ohlcv_df['volume']
+        current_price = current_price or float(prices.iloc[-1])
+        
+        # MACD 계산
+        ema_fast = prices.ewm(span=self.macd_fast, adjust=False).mean()
+        ema_slow = prices.ewm(span=self.macd_slow, adjust=False).mean()
+        macd_line = ema_fast - ema_slow
+        signal_line = macd_line.ewm(span=self.macd_signal, adjust=False).mean()
+        
+        # 현재 및 이전 MACD 값
+        macd_now = float(macd_line.iloc[-1])
+        macd_prev = float(macd_line.iloc[-2])
+        signal_now = float(signal_line.iloc[-1])
+        signal_prev = float(signal_line.iloc[-2])
+        
+        # MACD 크로스 판단
+        # 골든크로스: MACD가 시그널을 상향 돌파 (파랑)
+        golden_cross = macd_prev <= signal_prev and macd_now > signal_now
+        # 데드크로스: MACD가 시그널을 하향 돌파 (빨강)
+        death_cross = macd_prev >= signal_prev and macd_now < signal_now
+        
+        # 현재 MACD 상태 (파랑/빨강)
+        is_bullish = macd_now > signal_now  # 파랑 (MACD > Signal)
+        is_bearish = macd_now < signal_now  # 빨강 (MACD < Signal)
+        
+        # 거래량 급증 판단 (이전 봉 대비 3배 이상)
+        current_volume = float(volumes.iloc[-1])
+        prev_volume = float(volumes.iloc[-2])
+        volume_ratio = current_volume / prev_volume if prev_volume > 0 else 0
+        volume_spike = volume_ratio >= self.volume_multiplier
+        
+        # 평균 거래량 대비도 체크 (더 신뢰성 높은 판단)
+        avg_volume = float(volumes.iloc[-20:].mean())
+        volume_vs_avg = current_volume / avg_volume if avg_volume > 0 else 0
+        
+        logger.debug(f"MACD: {macd_now:.0f}, Signal: {signal_now:.0f}, Volume ratio: {volume_ratio:.1f}x")
+        
+        # 매수 신호: 골든크로스 또는 파랑 상태 + 거래량 3배 이상
+        if (golden_cross or is_bullish) and volume_spike:
+            confidence = min(0.95, 0.7 + (volume_ratio - 3) * 0.05)
+            cross_type = "골든크로스" if golden_cross else "파랑(강세)"
+            return Signal(
+                action="BUY",
+                strategy=self.name,
+                confidence=confidence,
+                reason=f"MACD {cross_type} + 거래량 {volume_ratio:.1f}배 급증"
+            )
+        
+        # 매도 신호: 데드크로스 또는 빨강 상태 + 거래량 3배 이상
+        if (death_cross or is_bearish) and volume_spike:
+            confidence = min(0.95, 0.7 + (volume_ratio - 3) * 0.05)
+            cross_type = "데드크로스" if death_cross else "빨강(약세)"
+            return Signal(
+                action="SELL",
+                strategy=self.name,
+                confidence=confidence,
+                reason=f"MACD {cross_type} + 거래량 {volume_ratio:.1f}배 급증"
+            )
+        
+        # HOLD 상태 설명
+        macd_status = "파랑(강세)" if is_bullish else "빨강(약세)"
+        if volume_spike:
+            reason = f"MACD {macd_status}, 거래량 {volume_ratio:.1f}배 (크로스 대기)"
+        else:
+            reason = f"MACD {macd_status}, 거래량 {volume_ratio:.1f}배 (3배 미만)"
+        
+        return Signal(
+            action="HOLD",
+            strategy=self.name,
+            confidence=0.5,
+            reason=reason
+        )
 
 
 class RSIEMAStrategy(BaseStrategy):
