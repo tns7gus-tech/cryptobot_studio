@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  polymarket-monitor:
+    build: .
+    container_name: polymarket_monitor
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - TZ=America/New_York
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

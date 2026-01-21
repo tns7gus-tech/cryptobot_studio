@@ -1,0 +1,35 @@
+# Polymarket Auto-Trading Bot - Premium Version
+# Google Cloud Run Optimized
+
+# Polymarket API
+py-clob-client>=0.34.0
+web3>=6.0.0
+eth-account>=0.10.0
+
+# Google Cloud Services
+google-cloud-logging>=3.5.0
+google-cloud-storage>=2.10.0
+google-cloud-secret-manager>=2.16.0
+google-generativeai>=0.3.2
+
+# Telegram
+python-telegram-bot>=20.7
+
+# Web Framework (Cloud Run health check)
+flask>=3.0.0
+gunicorn>=21.0.0
+
+# Data & Utils
+python-dotenv>=1.0.0
+requests>=2.31.0
+aiohttp>=3.9.1
+websockets>=12.0
+pandas>=2.1.4
+numpy>=1.26.2
+pytz>=2023.3
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Logging
+loguru>=0.7.2
+tenacity>=8.2.3

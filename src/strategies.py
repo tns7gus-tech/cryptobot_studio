@@ -1,0 +1,256 @@
+"""
+CryptoBot Studio - Trading Strategies
+RSI and Bollinger Bands based trading strategies
+"""
+from abc import ABC, abstractmethod
+from typing import Optional, Literal
+from dataclasses import dataclass
+from loguru import logger
+
+from indicators import BollingerBandsResult
+
+
+@dataclass
+class Signal:
+    """거래 신호"""
+    action: Literal["BUY", "SELL", "HOLD"]
+    strategy: str
+    confidence: float  # 0.0 ~ 1.0
+    reason: str
+    
+    def __str__(self):
+        emoji = "🟢" if self.action == "BUY" else "🔴" if self.action == "SELL" else "⚪"
+        return f"{emoji} {self.action} ({self.strategy}) - {self.reason} [신뢰도: {self.confidence:.0%}]"
+
+
+class BaseStrategy(ABC):
+    """전략 베이스 클래스"""
+    
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        pass
+    
+    @abstractmethod
+    def analyze(self, **kwargs) -> Signal:
+        pass
+
+
+
+
+
+class BollingerBandStrategy(BaseStrategy):
+    """
+    볼린저밴드 기반 매매 전략
+    
+    - 가격 < 하단밴드: 매수 신호
+    - 가격 > 상단밴드: 매도 신호
+    """
+    
+    @property
+    def name(self) -> str:
+        return "BollingerBand"
+    
+    def analyze(self, bb: BollingerBandsResult = None, **kwargs) -> Signal:
+        """
+        볼린저밴드 분석
+        
+        Args:
+            bb: BollingerBandsResult 객체
+            
+        Returns:
+            Signal
+        """
+        if bb is None:
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.0,
+                reason="볼린저밴드 데이터 없음"
+            )
+        
+        # 하단 밴드 돌파 (매수 신호)
+        if bb.is_below_lower:
+            # 신뢰도: 많이 이탈할수록 강한 신호
+            confidence = min(1.0, max(0.5, 1.0 - bb.percent_b))
+            return Signal(
+                action="BUY",
+                strategy=self.name,
+                confidence=confidence,
+                reason=f"가격 ₩{bb.current_price:,.0f} < 하단밴드 ₩{bb.lower:,.0f}"
+            )
+        
+        # 상단 밴드 돌파 (매도 신호)
+        if bb.is_above_upper:
+            # 신뢰도: 많이 이탈할수록 강한 신호
+            confidence = min(1.0, max(0.5, bb.percent_b))
+            return Signal(
+                action="SELL",
+                strategy=self.name,
+                confidence=confidence,
+                reason=f"가격 ₩{bb.current_price:,.0f} > 상단밴드 ₩{bb.upper:,.0f}"
+            )
+        
+        # 밴드 내
+        return Signal(
+            action="HOLD",
+            strategy=self.name,
+            confidence=0.5,
+            reason=f"밴드 내 위치: {bb.percent_b:.1%}"
+        )
+
+
+
+
+
+class FVGStrategy(BaseStrategy):
+    """
+    ICT Fair Value Gap 전략
+    
+    3개의 캔들 사이에서 급격한 상승/하락으로 인해 매물대가 비어있는 구간(Gap)을 찾고,
+    가격이 다시 그 구간으로 돌아올 때(Retracement) 진입합니다.
+    
+    상승 FVG:
+    - 탐지: candle[N-2].high < candle[N].low
+    - 매수: 가격이 갭 영역 내로 되돌아올 때
+    - 손절: candle[N-1].low 이탈
+    """
+    
+    def __init__(self, min_gap_percent: float = 0.05):
+        """
+        Args:
+            min_gap_percent: 최소 갭 크기 (%, 기본 0.05%)
+        """
+        self.min_gap_percent = min_gap_percent
+        self._active_fvg = None  # 현재 추적 중인 FVG
+    
+    @property
+    def name(self) -> str:
+        return "ICT_FVG"
+    
+    def analyze(
+        self,
+        ohlcv_df=None,
+        current_price: float = None,
+        fvg_result=None,
+        **kwargs
+    ) -> Signal:
+        """
+        FVG 전략 분석
+        
+        Args:
+            ohlcv_df: OHLCV DataFrame
+            current_price: 현재가
+            fvg_result: 미리 계산된 FVGResult (선택사항)
+            
+        Returns:
+            Signal
+        """
+        from indicators import detect_fvg, FVGResult
+        
+        # FVG 결과가 없으면 직접 탐지
+        if fvg_result is None:
+            if ohlcv_df is None:
+                return Signal(
+                    action="HOLD",
+                    strategy=self.name,
+                    confidence=0.0,
+                    reason="OHLCV 데이터 없음"
+                )
+            fvg_result = detect_fvg(ohlcv_df, min_gap_percent=self.min_gap_percent)
+        
+        if fvg_result is None or not fvg_result.found:
+            self._active_fvg = None
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.3,
+                reason="FVG 미발견"
+            )
+        
+        if current_price is None:
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.0,
+                reason="현재가 정보 없음"
+            )
+        
+        # FVG 발견됨 - 추적 시작
+        self._active_fvg = fvg_result
+        
+        # 상승 FVG (Bullish)
+        if fvg_result.direction == "BULLISH":
+            # 손절 체크 (갭 하단 이탈 or 모멘텀 캔들 저가 이탈)
+            if current_price < fvg_result.stop_loss:
+                return Signal(
+                    action="SELL",  # 손절
+                    strategy=self.name,
+                    confidence=0.9,
+                    reason=f"손절: 현재가 ₩{current_price:,.0f} < SL ₩{fvg_result.stop_loss:,.0f}"
+                )
+            
+            # 매수 진입 조건: 가격이 갭 영역 내로 진입
+            if current_price <= fvg_result.gap_top and current_price >= fvg_result.gap_bottom:
+                # 손익비 계산
+                risk = current_price - fvg_result.stop_loss
+                reward = fvg_result.take_profit - current_price
+                rr_ratio = reward / risk if risk > 0 else 0
+                
+                confidence = min(0.9, 0.6 + (rr_ratio * 0.1))  # RR이 좋을수록 신뢰도 증가
+                
+                return Signal(
+                    action="BUY",
+                    strategy=self.name,
+                    confidence=confidence,
+                    reason=f"FVG 진입: 갭 ₩{fvg_result.gap_bottom:,.0f}~₩{fvg_result.gap_top:,.0f} 내 (RR:{rr_ratio:.1f})"
+                )
+            
+            # 갭 위에서 대기 중
+            if current_price > fvg_result.gap_top:
+                return Signal(
+                    action="HOLD",
+                    strategy=self.name,
+                    confidence=0.5,
+                    reason=f"대기: 갭 ₩{fvg_result.gap_bottom:,.0f}~₩{fvg_result.gap_top:,.0f} 터치 대기 중"
+                )
+        
+        # 하락 FVG (Bearish) - 현재는 매수만 지원
+        if fvg_result.direction == "BEARISH":
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.4,
+                reason=f"하락 FVG 감지 (매도 대기)"
+            )
+        
+        return Signal(
+            action="HOLD",
+            strategy=self.name,
+            confidence=0.3,
+            reason="조건 미충족"
+        )
+    
+    def get_active_fvg(self):
+        """현재 활성 FVG 반환"""
+        return self._active_fvg
+
+
+# Test
+if __name__ == "__main__":
+    print("=== Strategy Test ===\n")
+    
+    # Mock data
+    # BB 하단 돌파 테스트
+    bb_below = BollingerBandsResult(
+        upper=100000000,
+        middle=95000000,
+        lower=90000000,
+        current_price=89000000,
+        is_above_upper=False,
+        is_below_lower=True,
+        percent_b=-0.1
+    )
+    bb_strategy = BollingerBandStrategy()
+    signal = bb_strategy.analyze(bb=bb_below)
+    print(f"BB 하단 돌파: {signal}")
