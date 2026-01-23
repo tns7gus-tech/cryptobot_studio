@@ -1,6 +1,6 @@
 """
 CryptoBot Studio - Auto Trading Engine
-Executes trades based on strategy signals
+Executes trades based on strategy signals (Orderbook Scalping)
 """
 from typing import Optional, Literal
 from dataclasses import dataclass
@@ -9,8 +9,7 @@ from loguru import logger
 
 from config import settings
 from upbit_client import UpbitClient, OrderResult
-from indicators import detect_fvg, FVGResult
-from strategies import MACDVolumeStrategy, Signal
+from strategies import OrderbookScalpingStrategy, Signal
 from telegram_notifier import TelegramNotifier
 from risk_manager import RiskManager
 
@@ -37,7 +36,7 @@ class TradeResult:
 
 class AutoTrader:
     """
-    자동매매 엔진
+    자동매매 엔진 (오더북 스캘핑)
     
     Modes:
     - semi: 신호만 알림 (실거래 안함)
@@ -57,43 +56,58 @@ class AutoTrader:
         self.notifier = TelegramNotifier()
         self.risk_manager = RiskManager()
         
-        # MACD + 거래량 전략 (5분봉)
-        self.strategy = MACDVolumeStrategy(
-            macd_fast=12,
-            macd_slow=26,
-            macd_signal=9,
-            volume_multiplier=3.0  # 이전 봉 대비 3배 거래량
+        # 오더북 스캘핑 전략
+        self.strategy = OrderbookScalpingStrategy(
+            bid_ask_ratio=settings.scalping_bid_ask_ratio,
+            take_profit=settings.scalping_take_profit,
+            stop_loss=settings.scalping_stop_loss
         )
-        self.active_strategy = self.strategy
         
         # 포지션 상태
         self._in_position = False
+        self._entry_price = 0.0  # 진입가
         
         mode_str = "🔔 알림 전용" if self.mode == "semi" else "🤖 자동매매"
         logger.info(f"💹 AutoTrader 초기화 완료 ({mode_str})")
         logger.info(f"   - 마켓: {self.symbol}")
         logger.info(f"   - 1회 금액: ₩{settings.trade_amount:,.0f}")
-        logger.info(f"   - 전략: MACD 크로스 + 거래량 3배 (5분봉)")
+        logger.info(f"   - 전략: 오더북 스캘핑 (비율: {settings.scalping_bid_ask_ratio}x, 익절: +{settings.scalping_take_profit}%, 손절: -{settings.scalping_stop_loss}%)")
     
     async def start(self):
         """Initialize components"""
         await self.notifier.start()
+        
+        # 기존 포지션 확인
+        self._check_existing_position()
     
     async def stop(self):
         """Cleanup"""
         await self.notifier.close()
     
+    def _check_existing_position(self):
+        """기존 포지션 확인 및 진입가 설정"""
+        ticker = self.symbol.split('-')[1]  # KRW-BTC -> BTC
+        balance = self.upbit.get_balance(ticker)
+        
+        if balance > 0:
+            self._in_position = True
+            self._entry_price = self.upbit.get_avg_buy_price(ticker)
+            logger.info(f"📊 기존 포지션 감지: {balance:.8f} {ticker} @ ₩{self._entry_price:,.0f}")
+        else:
+            self._in_position = False
+            self._entry_price = 0.0
+    
     def analyze(self) -> Optional[Signal]:
         """
-        현재 시장 분석 (5분봉 RSI + EMA 전략)
+        현재 시장 분석 (오더북 스캘핑)
         
         Returns:
             Signal 객체
         """
-        # OHLCV 데이터 조회 (5분봉)
-        df = self.upbit.get_ohlcv(self.symbol, interval="minute5", count=100)
-        if df is None:
-            logger.error("OHLCV 데이터 조회 실패")
+        # 오더북 데이터 조회
+        orderbook = self.upbit.get_orderbook(self.symbol)
+        if orderbook is None:
+            logger.error("오더북 데이터 조회 실패")
             return None
         
         current_price = self.upbit.get_current_price(self.symbol)
@@ -101,10 +115,12 @@ class AutoTrader:
             logger.error("현재가 조회 실패")
             return None
         
-        # RSI + EMA 전략 분석
+        # 오더북 스캘핑 전략 분석
         signal = self.strategy.analyze(
-            ohlcv_df=df,
-            current_price=current_price
+            orderbook=orderbook,
+            current_price=current_price,
+            entry_price=self._entry_price,
+            in_position=self._in_position
         )
         
         logger.info(f"🎯 신호: {signal}")
@@ -214,6 +230,10 @@ class AutoTrader:
             # 체결 예상 수량
             volume = amount / current_price
             
+            # 포지션 상태 업데이트
+            self._in_position = True
+            self._entry_price = current_price
+            
             # 리스크 매니저에 기록 (매수는 아직 손익 미확정)
             self.risk_manager.record_trade(
                 amount=amount,
@@ -292,6 +312,10 @@ class AutoTrader:
                 profit_rate = ((current_price - avg_buy_price) / avg_buy_price) * 100
                 profit = total - (balance * avg_buy_price)
             
+            # 포지션 상태 초기화
+            self._in_position = False
+            self._entry_price = 0.0
+            
             # 리스크 매니저에 기록
             self.risk_manager.record_trade(
                 amount=total,
@@ -360,7 +384,7 @@ if __name__ == "__main__":
     import asyncio
     
     async def test_trader():
-        print("=== AutoTrader Test ===\n")
+        print("=== AutoTrader Test (Orderbook Scalping) ===\n")
         
         trader = AutoTrader(mode="semi")
         await trader.start()

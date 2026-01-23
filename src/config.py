@@ -38,12 +38,17 @@ class Settings(BaseSettings):
     
 
     
-    # Bollinger Bands Settings
+    # Bollinger Bands Settings (legacy)
     bb_period: int = 20
     bb_std: float = 2.0
     
+    # Orderbook Scalping Settings
+    scalping_bid_ask_ratio: float = 2.0   # 매수/매도 비율 임계값
+    scalping_take_profit: float = 0.35    # 익절 % (수수료 0.1% 고려)
+    scalping_stop_loss: float = 0.5       # 손절 %
+    
     # Risk Management
-    max_daily_trades: int = 10
+    max_daily_trades: int = 100  # 스캘핑은 고빈도
     max_daily_loss: float = 50000  # KRW
     
     # Bot Mode

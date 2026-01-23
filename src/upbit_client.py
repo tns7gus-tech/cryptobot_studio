@@ -370,6 +370,47 @@ class UpbitClient:
                 error=str(e)
             )
     
+    def get_orderbook(self, symbol: str = None) -> Optional[Dict]:
+        """
+        호가창(오더북) 조회
+        
+        Args:
+            symbol: 마켓 심볼 (예: "KRW-BTC")
+            
+        Returns:
+            {
+                'total_ask_size': 총 매도 잔량,
+                'total_bid_size': 총 매수 잔량,
+                'bid_ask_ratio': 매수/매도 비율,
+                'orderbook_units': [{'ask_price', 'bid_price', 'ask_size', 'bid_size'}, ...]
+            }
+        """
+        symbol = symbol or settings.trade_symbol
+        
+        try:
+            orderbook = pyupbit.get_orderbook(symbol)
+            if orderbook and len(orderbook) > 0:
+                ob = orderbook[0]
+                total_ask = ob.get('total_ask_size', 0)
+                total_bid = ob.get('total_bid_size', 0)
+                
+                # 매수/매도 비율 계산 (0으로 나누기 방지)
+                bid_ask_ratio = total_bid / total_ask if total_ask > 0 else 0
+                
+                result = {
+                    'total_ask_size': total_ask,
+                    'total_bid_size': total_bid,
+                    'bid_ask_ratio': bid_ask_ratio,
+                    'orderbook_units': ob.get('orderbook_units', [])
+                }
+                
+                logger.debug(f"오더북 조회: 매수잔량={total_bid:.2f}, 매도잔량={total_ask:.2f}, 비율={bid_ask_ratio:.2f}x")
+                return result
+            return None
+        except Exception as e:
+            logger.error(f"오더북 조회 실패 ({symbol}): {e}")
+            return None
+    
     def get_order(self, uuid: str) -> Optional[Dict]:
         """
         주문 조회

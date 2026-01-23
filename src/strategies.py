@@ -34,6 +34,124 @@ class BaseStrategy(ABC):
     @abstractmethod
     def analyze(self, **kwargs) -> Signal:
         pass
+
+
+class OrderbookScalpingStrategy(BaseStrategy):
+    """
+    오더북 스캘핑 전략
+    
+    차트 지표 없이 오직 호가창 수급만 보고 매매:
+    - 매수 잔량이 매도 잔량의 N배 이상이면 BUY (매수 벽 지지)
+    - 포지션 보유 시 목표 수익률 달성하면 SELL (익절)
+    - 포지션 보유 시 손절 라인 도달하면 SELL (손절)
+    
+    주의: 수수료 0.05% (왕복 0.1%)를 고려해야 함
+    """
+    
+    def __init__(
+        self,
+        bid_ask_ratio: float = 2.0,      # 매수/매도 비율 임계값
+        take_profit: float = 0.35,       # 익절 % (수수료 0.1% 고려)
+        stop_loss: float = 0.5           # 손절 % (양수로 입력)
+    ):
+        self.bid_ask_ratio = bid_ask_ratio
+        self.take_profit = take_profit
+        self.stop_loss = stop_loss
+    
+    @property
+    def name(self) -> str:
+        return "Orderbook_Scalping"
+    
+    def analyze(
+        self,
+        orderbook: dict = None,
+        current_price: float = None,
+        entry_price: float = None,  # 진입가 (포지션 보유 시)
+        in_position: bool = False,
+        **kwargs
+    ) -> Signal:
+        """
+        오더북 스캘핑 분석
+        
+        Args:
+            orderbook: {total_bid_size, total_ask_size, bid_ask_ratio}
+            current_price: 현재가
+            entry_price: 진입가 (포지션 보유 시)
+            in_position: 포지션 보유 여부
+            
+        Returns:
+            Signal
+        """
+        if orderbook is None:
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.0,
+                reason="오더북 데이터 없음"
+            )
+        
+        if current_price is None:
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.0,
+                reason="현재가 정보 없음"
+            )
+        
+        bid_ask_ratio = orderbook.get('bid_ask_ratio', 0)
+        total_bid = orderbook.get('total_bid_size', 0)
+        total_ask = orderbook.get('total_ask_size', 0)
+        
+        # 포지션 보유 중인 경우 - 익절/손절 판단
+        if in_position and entry_price and entry_price > 0:
+            profit_rate = ((current_price - entry_price) / entry_price) * 100
+            
+            # 익절 조건 (0.35% 이상)
+            if profit_rate >= self.take_profit:
+                return Signal(
+                    action="SELL",
+                    strategy=self.name,
+                    confidence=0.95,
+                    reason=f"익절: +{profit_rate:.2f}% (목표: {self.take_profit}%)"
+                )
+            
+            # 손절 조건 (-0.5% 이하)
+            if profit_rate <= -self.stop_loss:
+                return Signal(
+                    action="SELL",
+                    strategy=self.name,
+                    confidence=0.95,
+                    reason=f"손절: {profit_rate:.2f}% (한도: -{self.stop_loss}%)"
+                )
+            
+            # 아직 익절/손절 미도달 - HOLD
+            return Signal(
+                action="HOLD",
+                strategy=self.name,
+                confidence=0.6,
+                reason=f"포지션 유지: {profit_rate:+.2f}% (익절: +{self.take_profit}%, 손절: -{self.stop_loss}%)"
+            )
+        
+        # 포지션 없는 경우 - 진입 조건 판단
+        # 매수 잔량이 매도 잔량의 2배 이상이면 BUY
+        if bid_ask_ratio >= self.bid_ask_ratio:
+            confidence = min(0.95, 0.65 + (bid_ask_ratio - self.bid_ask_ratio) * 0.1)
+            return Signal(
+                action="BUY",
+                strategy=self.name,
+                confidence=confidence,
+                reason=f"매수벽 지지: 비율 {bid_ask_ratio:.2f}x (매수: {total_bid:.1f}, 매도: {total_ask:.1f})"
+            )
+        
+        # 진입 조건 미충족 - HOLD
+        return Signal(
+            action="HOLD",
+            strategy=self.name,
+            confidence=0.4,
+            reason=f"대기: 비율 {bid_ask_ratio:.2f}x < {self.bid_ask_ratio}x (매수: {total_bid:.1f}, 매도: {total_ask:.1f})"
+        )
+
+
 class MACDVolumeStrategy(BaseStrategy):
     """
     MACD 크로스 + 거래량 급증 전략

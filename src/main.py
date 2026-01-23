@@ -203,11 +203,11 @@ async def main():
     logger.info(f"📊 마켓: {settings.trade_symbol}")
     logger.info(f"💰 1회 금액: ₩{settings.trade_amount:,.0f}")
     logger.info(f"⚙️ 모드: {settings.bot_mode}")
-    logger.info(f"📈 전략: MACD 크로스 + 거래량 3배 (5분봉)")
+    logger.info(f"📈 전략: 오더북 스컄핑 (비율: {settings.scalping_bid_ask_ratio}x, 익절: +{settings.scalping_take_profit}%, 손절: -{settings.scalping_stop_loss}%)")
     logger.info("")
     
-    # 1분 주기로 분석 (5분봉 기반, 자주 체크해서 진입 타이밍 빠르게 포착)
-    orchestrator = CryptoBotOrchestrator(check_interval=60)
+    # 10초 주기로 분석 (오더북 스컄핑은 빠른 체크 필요)
+    orchestrator = CryptoBotOrchestrator(check_interval=10)
     
     # Cloud Run 헬스체크용 HTTP 서버
     async def health_check(request):
