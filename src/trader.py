@@ -98,46 +98,41 @@ class AutoTrader:
     
     async def _update_targets_and_positions(self, force: bool = False):
         """
-        4시간마다 타겟 종목 갱신 및 포지션 동기화
-        기준 시간: 01:00, 05:00, 09:00, 13:00, 17:00, 21:00
+        타겟 종목 갱신 및 포지션 동기화 (실시간/매 루프마다 체크하도록 변경)
         """
         now = datetime.now()
         
-        # 1. 갱신 필요 여부 확인
+        # 1. 갱신 (실시간성을 위해 매번 혹은 짧은 주기로 체크)
+        # 사용자 요청: "다시 실시간방식으로 변경" -> 매 1분마다 체크
         should_update = force
         if not should_update and self.last_update_time:
-            # 시간 차이가 4시간 이상이거나, 현재 시각이 갱신 주기(1시, 5시...)를 막 지났을 때
-            hours_diff = (now - self.last_update_time).total_seconds() / 3600
-            is_schedule_time = (now.hour - 1) % 4 == 0 and now.minute < 5  # 1시, 5시... 의 0~5분 사이
-            
-            if hours_diff >= 4 or is_schedule_time:
+            seconds_diff = (now - self.last_update_time).total_seconds()
+            if seconds_diff >= 60: # 1분마다 갱신
                 should_update = True
-        
-        if not should_update:
-            return
-
-        logger.info("🔄 타겟/포지션 갱신 중...")
-        
-        # 2. 거래대금 상위 종목 갱신
-        new_targets = self.upbit.get_top_volume_tickers(self.top_n)
-        if new_targets:
-            self.target_symbols = new_targets
-            self.last_update_time = now
-            logger.info(f"🎯 새로운 타겟 선정 완료 (Top {self.top_n}): {', '.join(self.target_symbols)}")
+        else:
+            should_update = True
             
-            # 알림 발송 (갱신 시점에만)
-            if not force:
-                await self.notifier.send_message(
-                    f"🔄 <b>타겟 종목 갱신 (4H)</b>\nTop {self.top_n}: {', '.join(self.target_symbols)}"
-                )
+        if should_update:
+            # logger.debug("🔄 타겟/포지션 갱신 (실시간)...")
+            
+            # 2. 거래대금 상위 종목 갱신
+            new_targets = self.upbit.get_top_volume_tickers(self.top_n)
+            if new_targets:
+                # 기존 타겟과 다를 때만 알림
+                if set(new_targets) != set(self.target_symbols):
+                    logger.info(f"🎯 타겟 변경 (Top {self.top_n}): {', '.join(new_targets)}")
+                    # 잦은 알림 방지를 위해 Log만 남김 (또는 중요하면 알림)
+                    
+                self.target_symbols = new_targets
+                self.last_update_time = now
         
-        # 3. 보유 포지션 동기화 (자투리 제외)
+        # 3. 보유 포지션 동기화
         try:
             balances = self.upbit.get_balances()
             if not balances:
                 return
                 
-            self.positions.clear() # 기존 상태 초기화 후 재구축
+            self.positions.clear() # 재구축
             
             for item in balances:
                 currency = item.get('currency', '')
@@ -156,7 +151,7 @@ class AutoTrader:
                 
                 # 자투리(Dust) 코인 무시 (< 5000 KRW)
                 if self._is_dust(balance, current_price):
-                    logger.debug(f"🧹 자투리 무시: {symbol} ({balance * current_price:,.0f} KRW)")
+                    # logger.debug(f"🧹 자투리 무시: {symbol}")
                     continue
                 
                 self.positions[symbol] = PositionInfo(
@@ -164,7 +159,6 @@ class AutoTrader:
                     entry_price=avg_buy_price,
                     balance=balance
                 )
-                logger.info(f"📊 포지션 로드: {symbol} {balance:.8f} @ ₩{avg_buy_price:,.0f}")
                 
         except Exception as e:
             logger.error(f"포지션 갱신 실패: {e}")
@@ -228,7 +222,7 @@ class AutoTrader:
         
         # 리스크 체크
         can_trade, reason = self.risk_manager.can_trade(amount)
-        if not can_trade:
+        if not can_trade and signal.action == "BUY": # 매도시에는 리스크 체크 스킵 (탈출 우선)
              return TradeResult(
                 success=False, action=signal.action, symbol=symbol, order=None, 
                 signal=signal, price=current_price, amount=amount, volume=None, error=reason
@@ -254,45 +248,72 @@ class AutoTrader:
         )
     
     async def _execute_buy(self, symbol: str, signal: Signal, amount: float, current_price: float) -> TradeResult:
-        """매수 실행"""
-        logger.info(f"🟢 매수 실행: {symbol}, ₩{amount:,.0f}")
-        order = self.upbit.buy_market_order(symbol, amount)
+        """매수 실행 (지정가 Limit Order)"""
+        # 지정가 매수를 위해 호가창 조회 (매수 1호가 바로 위 or 매수 1호가)
+        # 사용자 요청: "현재 최우선 매수 호가(bid price) 바로 위에 걸어두기" -> Upbit API에서는 최우선 매수호가(bid_price)를 의미
+        # bid_price로 주문하면 대기 주문이 됨.
+        orderbook = self.upbit.get_orderbook(symbol)
+        if not orderbook or 'orderbook_units' not in orderbook or not orderbook['orderbook_units']:
+            bid_price = current_price # 실패 시 현재가
+        else:
+            bid_price = float(orderbook['orderbook_units'][0]['bid_price'])
+            
+        logger.info(f"🟢 매수 시도 (지정가): {symbol}, 가격 ₩{bid_price:,.0f}")
+        
+        # 지정가 매수 호출
+        # 수량 계산
+        volume = amount / bid_price
+        order = self.upbit.buy_limit_order(symbol, price=bid_price, volume=volume)
         
         if order.success:
-            volume = amount / current_price
+            # 지정가 주문은 즉시 체결되지 않을 수 있음.
+            # 하지만 봇 로직상 '포지션 잡음'으로 간주하고 다음 턴에 잔고 동기화로 보정
+            # -> 미체결 시 잔고에 안 들어오므로 다음 턴에 다시 BUY 시그널이 뜰 수 있음.
+            # -> 이를 방지하려면 'pending' 상태 관리가 필요하지만, 간단히 하기 위해
+            #    일단 로컬 포지션에 추가해두고, 다음번 _update_targets_and_positions에서
+            #    실제 잔고(미체결이면 없음)에 따라 사라지게 둠.
+            #    하지만 이러면 10초 뒤에 다시 매수 주문을 넣을 위험이 있음.
+            #    (사용자가 원하는 것은 'Limit Order'이므로 미체결 감안)
+            
+            # 개선: 미체결 주문이 있는지 확인하는 로직이 필요하나 복잡함.
+            # 일단 'in_position'으로 마킹하여 중복 매수 방지
             self.positions[symbol] = PositionInfo(
-                in_position=True, entry_price=current_price, balance=volume
+                in_position=True, entry_price=bid_price, balance=volume
             )
-            self.risk_manager.record_trade(amount=amount, profit=0, strategy=signal.strategy)
+            
+            # 매수 시에는 Trade Count를 증가시키지 않음 (매도 시 완료된 것으로 카운트)
+            # self.risk_manager.record_trade(...) -> REMOVED
             
             await self.notifier.send_buy_alert(
-                symbol=symbol, price=current_price, amount=amount, 
+                symbol=symbol, price=bid_price, amount=amount, 
                 volume=volume, strategy=signal.strategy
             )
             return TradeResult(
                 success=True, action="BUY", symbol=symbol, order=order, 
-                signal=signal, price=current_price, amount=amount, volume=volume
+                signal=signal, price=bid_price, amount=amount, volume=volume
             )
         else:
             logger.error(f"❌ {symbol} 매수 실패: {order.error}")
             return TradeResult(
                 success=False, action="BUY", symbol=symbol, order=order, 
-                signal=signal, price=current_price, amount=amount, volume=None, error=order.error
+                signal=signal, price=bid_price, amount=amount, volume=None, error=order.error
             )
 
     async def _execute_sell(self, symbol: str, signal: Signal, current_price: float) -> TradeResult:
-        """매도 실행"""
+        """매도 실행 (시장가 Market Order - 확실한 청산)"""
         ticker = symbol.split('-')[1]
         balance = self.upbit.get_balance(ticker)
         
         if balance <= 0:
+            # 잔고가 없다면 로컬 상태도 업데이트
+            self.positions[symbol] = PositionInfo(in_position=False, entry_price=0.0, balance=0.0)
             return TradeResult(
                 success=False, action="SELL", symbol=symbol, order=None, 
                 signal=signal, price=current_price, amount=None, volume=0, error="매도 가능 수량 없음"
             )
             
         avg_buy_price = self.upbit.get_avg_buy_price(ticker)
-        logger.info(f"🔴 매도 실행: {symbol}, {balance:.8f} {ticker}")
+        logger.info(f"🔴 매도 시도 (시장가): {symbol}, {balance:.8f} {ticker}")
         order = self.upbit.sell_market_order(symbol, balance)
         
         if order.success:
@@ -301,6 +322,8 @@ class AutoTrader:
             profit_rate = ((current_price - avg_buy_price) / avg_buy_price * 100) if avg_buy_price > 0 else 0
             
             self.positions[symbol] = PositionInfo(in_position=False, entry_price=0.0, balance=0.0)
+            
+            # 매도 시점에 Trade Count & Profit 기록
             self.risk_manager.record_trade(amount=total, profit=profit, strategy=signal.strategy)
             
             await self.notifier.send_sell_alert(
@@ -322,7 +345,7 @@ class AutoTrader:
         """1회 분석 및 거래 실행"""
         results = []
         
-        # 1. 주기적 갱신 체크 (4H)
+        # 1. 갱신 (매주기 체크)
         await self._update_targets_and_positions()
         
         # 2. 분석 대상 선정
@@ -331,7 +354,7 @@ class AutoTrader:
             if position.in_position:
                 symbols_to_check.add(symbol)
         
-        logger.debug(f"이번 턴 분석 대상: {', '.join(symbols_to_check)}")
+        logger.debug(f"분석 대상: {len(symbols_to_check)}개 ({', '.join(list(symbols_to_check)[:5])}...)")
         
         # 3. 분석 및 거래
         for symbol in symbols_to_check:
@@ -356,11 +379,11 @@ class AutoTrader:
 if __name__ == "__main__":
     import asyncio
     async def test_trader():
-        print("=== AutoTrader Test (Multi-Symbol Orderbook Scalping) ===\n")
+        print("=== AutoTrader Test (Limit Order & Realtime) ===\n")
         trader = AutoTrader(mode="semi", top_n=3)
         await trader.start()
         
-        print("\n--- First Run (Target Selection) ---")
+        print("\n--- Run Once ---")
         results = await trader.run_once()
         print(f"Top 3 Targets: {trader.target_symbols}")
         

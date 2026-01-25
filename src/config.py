@@ -44,8 +44,8 @@ class Settings(BaseSettings):
     
     # Orderbook Scalping Settings
     scalping_bid_ask_ratio: float = 2.0   # 매수/매도 비율 임계값
-    scalping_take_profit: float = 0.35    # 익절 % (수수료 0.1% 고려)
-    scalping_stop_loss: float = 0.5       # 손절 %
+    scalping_take_profit: float = 1.5    # 익절 % (수수료 0.1% 고려, 목표 상향)
+    scalping_stop_loss: float = 1.0       # 손절 % (조금 더 여유 있게)
     
     # Risk Management
     max_daily_trades: int = 100  # 스캘핑은 고빈도

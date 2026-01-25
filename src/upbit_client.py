@@ -232,6 +232,70 @@ class UpbitClient:
             logger.error(f"OHLCV 조회 실패 ({symbol}): {e}")
             return None
     
+    def buy_limit_order(
+        self,
+        symbol: str = None,
+        price: float = None,
+        volume: float = None
+    ) -> OrderResult:
+        """
+        지정가 매수
+        
+        Args:
+            symbol: 마켓 심볼
+            price: 매수 가격 (KRW)
+            volume: 매수 수량 (선택, 없으면 가격으로 계산 시도하나 Upbit는 수량/가격 둘 다 필요하거나 하나만 필요할 수 있음.
+                   지정가는 보통 (가격, 수량)이 필수임.
+                   시장가는 (가격)만으로 가능(buy_market).
+        """
+        symbol = symbol or settings.trade_symbol
+        
+        if not self.upbit:
+            return OrderResult(
+                success=False, uuid=None, side="bid", ord_type="limit", price=price, volume=volume,
+                executed_volume=None, avg_price=None, total=None, error="Upbit 클라이언트 미초기화"
+            )
+            
+        try:
+            # 지정가는 수량(volume)이 필수입니다.
+            # 만약 volume이 없고 price와 총매수금액만 있다면 volume을 계산해야 함
+            if volume is None:
+                # 총 매수 금액(settings.trade_amount) / 가격
+                total_amount = settings.trade_amount
+                volume = total_amount / price
+            
+            logger.info(f"🟢 지정가 매수 요청: {symbol}, 가격 ₩{price:,.0f}, 수량 {volume:.8f}")
+            
+            result = self.upbit.buy_limit_order(symbol, price, volume)
+            
+            if result and 'uuid' in result:
+                logger.success(f"✅ 지정가 매수 주문 완료: {result['uuid']}")
+                return OrderResult(
+                    success=True,
+                    uuid=result.get('uuid'),
+                    side=result.get('side', 'bid'),
+                    ord_type=result.get('ord_type', 'limit'),
+                    price=float(result.get('price', price)),
+                    volume=float(result.get('volume', volume)),
+                    executed_volume=0.0, # 지정가는 즉시 체결 아닐 수 있음
+                    avg_price=None,
+                    total=price * volume if price and volume else None
+                )
+            else:
+                error_msg = result.get('error', {}).get('message', str(result)) if result else "Unknown error"
+                logger.error(f"❌ 지정가 매수 실패: {error_msg}")
+                return OrderResult(
+                    success=False, uuid=None, side="bid", ord_type="limit", price=price, volume=volume,
+                    executed_volume=None, avg_price=None, total=None, error=error_msg
+                )
+                
+        except Exception as e:
+            logger.error(f"❌ 지정가 매수 예외: {e}")
+            return OrderResult(
+                success=False, uuid=None, side="bid", ord_type="limit", price=price, volume=volume,
+                executed_volume=None, avg_price=None, total=None, error=str(e)
+            )
+    
     def buy_market_order(
         self,
         symbol: str = None,

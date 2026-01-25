@@ -133,7 +133,27 @@ class OrderbookScalpingStrategy(BaseStrategy):
             )
         
         # 포지션 없는 경우 - 진입 조건 판단
-        # 매수 잔량이 매도 잔량의 2배 이상이면 BUY
+        
+        # 1. 호가 갭(Spread) 체크
+        # 데이터 구조 확인: orderbook['orderbook_units']는 리스트
+        units = orderbook.get('orderbook_units', [])
+        if not units:
+             return Signal(action="HOLD", strategy=self.name, confidence=0.0, reason="호가 유닛 없음")
+             
+        ask_price = float(units[0].get('ask_price', 0))
+        bid_price = float(units[0].get('bid_price', 0))
+        
+        if bid_price > 0:
+            gap_percent = (ask_price - bid_price) / bid_price * 100
+            if gap_percent > 0.5:
+                 return Signal(
+                    action="HOLD",
+                    strategy=self.name,
+                    confidence=0.0,
+                    reason=f"호가 갭 과다: {gap_percent:.2f}% (> 0.5%)"
+                )
+        
+        # 2. 매수 잔량이 매도 잔량의 2배 이상이면 BUY
         if bid_ask_ratio >= self.bid_ask_ratio:
             confidence = min(0.95, 0.65 + (bid_ask_ratio - self.bid_ask_ratio) * 0.1)
             return Signal(
