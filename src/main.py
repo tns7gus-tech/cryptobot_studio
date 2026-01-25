@@ -80,8 +80,11 @@ class CryptoBotOrchestrator:
         await self.trader.start()
         await self.notifier.start()
         
-        # 시작 알림
-        await self.notifier.send_startup_message(mode=settings.bot_mode)
+        # 거래대금 상위 5개 종목 조회
+        top_tickers = self.trader.upbit.get_top_volume_tickers(5)
+        
+        # 시작 알림 (상위 종목 포함)
+        await self.notifier.send_startup_message(mode=settings.bot_mode, top_tickers=top_tickers)
         
         logger.success("🚀 CryptoBot Studio 시작!")
     

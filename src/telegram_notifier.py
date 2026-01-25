@@ -84,12 +84,13 @@ class TelegramNotifier:
         gap_bottom: float = None,
         gap_top: float = None,
         stop_loss: float = None,
-        strategy: str = "ICT_FVG"
+        strategy: str = "ORDERBOOK_SCALPING"
     ) -> bool:
         """
         매수 체결 알림
         """
-        message = f"가격:{price:,.0f}원에 매수하였습니다."
+        ticker = symbol.split('-')[1]  # KRW-BTC -> BTC
+        message = f"🟢 [{ticker}] 매수: ₩{price:,.0f} (금액: ₩{amount:,.0f})"
         return await self.send_message(message, parse_mode=None)
     
     async def send_sell_alert(
@@ -103,17 +104,19 @@ class TelegramNotifier:
         gap_bottom: float = None,
         gap_top: float = None,
         is_stop_loss: bool = False,
-        strategy: str = "ICT_FVG"
+        strategy: str = "ORDERBOOK_SCALPING"
     ) -> bool:
         """
         매도 체결 알림
         """
+        ticker = symbol.split('-')[1]  # KRW-BTC -> BTC
         rate_str = "0%"
         if profit_rate is not None:
              sign = "+" if profit_rate >= 0 else ""
-             rate_str = f"{sign}수익률 : {profit_rate:.2f}%"
+             rate_str = f"{sign}{profit_rate:.2f}%"
         
-        message = f"가격:{price:,.0f}원에 매도하였습니다. ({rate_str})"
+        emoji = "📈" if profit_rate and profit_rate >= 0 else "📉"
+        message = f"🔴 [{ticker}] 매도: ₩{price:,.0f} ({emoji} {rate_str})"
         return await self.send_message(message, parse_mode=None)
     
     async def send_daily_report(
@@ -132,7 +135,6 @@ class TelegramNotifier:
         total_profit = stats.get('total_profit', 0)
         total_wagered = stats.get('total_wagered', 0)
         win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0
-        fvg_trades = stats.get('fvg_trades', total_trades)
         
         profit_emoji = "📈" if total_profit >= 0 else "📉"
         
@@ -150,35 +152,43 @@ class TelegramNotifier:
 • 총 투자: ₩{total_wagered:,.0f}
 {profit_emoji} 손익: ₩{total_profit:+,.0f}
 
-🎯 <b>ICT FVG 전략</b>
-• FVG 거래: {fvg_trades}회
-• 타임프레임: 30분봉
+🎯 <b>오더북 스캘핑 전략</b>
+• 거래대금 상위 5개 종목
+• 익절: +{settings.scalping_take_profit}%
+• 손절: -{settings.scalping_stop_loss}%
 ━━━━━━━━━━━━━━━━━━━━━
         """.strip()
         
         return await self.send_message(message)
     
-    async def send_startup_message(self, mode: str = "semi") -> bool:
+    async def send_startup_message(self, mode: str = "semi", top_tickers: list = None) -> bool:
         """
         봇 시작 알림
         
         Args:
             mode: 봇 모드 ("semi" or "full")
+            top_tickers: 거래대금 상위 종목 리스트
         """
         mode_str = "🔔 알림 전용" if mode == "semi" else "🤖 자동매매"
+        
+        # 상위 티커 목록 포맷
+        if top_tickers:
+            tickers_str = ", ".join(top_tickers)
+        else:
+            tickers_str = "(조회 중...)"
         
         message = f"""
 🚀 <b>CryptoBot Studio 시작</b>
 ━━━━━━━━━━━━━━━━━━━━━
 ⚙️ 모드: {mode_str}
-📊 마켓: {settings.trade_symbol}
+📊 거래대금 상위 5개 종목:
+{tickers_str}
 💰 1회 금액: ₩{settings.trade_amount:,.0f}
 
-🎯 <b>ICT FVG 전략</b>
-• 타임프레임: 30분봉
-• 최소 갭 크기: 0.05%
-• 진입: FVG 갭 영역 터치 시
-• 손절: 모멘텀 캔들 저가 이탈
+🎯 <b>오더북 스캘핑 전략</b>
+• 매수비율: {settings.scalping_bid_ask_ratio}x 이상
+• 익절: +{settings.scalping_take_profit}%
+• 손절: -{settings.scalping_stop_loss}%
 
 🛡️ <b>리스크 관리</b>
 • 일일 최대 거래: {settings.max_daily_trades}회
