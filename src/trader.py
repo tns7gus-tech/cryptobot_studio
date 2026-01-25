@@ -445,6 +445,11 @@ class AutoTrader:
         # 3. 각 심볼별 분석 및 거래
         for symbol in symbols_to_check:
             try:
+                # 제외 목록에 있는 심볼은 건드리지 않음
+                if symbol in settings.exclude_symbols:
+                    logger.debug(f"⏭️ {symbol} 건너뜀 (제외 목록)")
+                    continue
+                
                 signal = self.analyze(symbol)
                 if signal is None:
                     continue

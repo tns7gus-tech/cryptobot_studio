@@ -4,7 +4,7 @@ Pydantic Settings for Upbit Auto Trading Bot
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 
 
 class Settings(BaseSettings):
@@ -78,6 +78,22 @@ class Settings(BaseSettings):
         # 따라서 메인 로직이나 Dockerfile에서 매핑하는 것이 좋으나,
         # 편의상 여기서는 None으로 두고 외부에서 PROXY_URL로 통일해서 주입 권장
         return v
+    
+    # Exclude Symbols (봇이 건드리지 않을 코인 목록)
+    # 장기 보유 목적의 코인은 여기에 추가 (예: "KRW-BTC,KRW-ETH,KRW-CRO")
+    exclude_symbols: List[str] = []
+    
+    @field_validator('exclude_symbols', mode='before')
+    @classmethod
+    def parse_exclude_symbols(cls, v):
+        """
+        문자열로 입력된 경우 쉼표로 분리하여 리스트로 변환
+        """
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            return [s.strip().upper() for s in v.split(',')]
+        return v or []
 
 
 # Global settings instance
