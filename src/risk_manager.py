@@ -131,10 +131,15 @@ class RiskManager:
             if amount > self.MAX_TRADE_AMOUNT:
                 return False, f"거래 금액 ₩{amount:,.0f} > 한도 ₩{self.MAX_TRADE_AMOUNT:,.0f}"
             
-            # 손실 가능성 체크
-            potential_loss = self.current_stats.total_profit - amount
-            if potential_loss < -self.MAX_DAILY_LOSS:
-                return False, "잠재 손실이 일일 한도 초과"
+            # 손실 가능성 체크 (손절가 기준)
+            # 5,000원 진입 시 100% 손실이 아니라, 설정된 손절률(예: 1%) + 슬리피지 여유분까지만 리스크로 산정
+            estimated_loss = amount * (settings.scalping_stop_loss / 100) * 1.2
+            
+            # 현재 누적 손익 - 이번 거래 예상 손실 < -일일 손실 한도
+            potential_total_profit = self.current_stats.total_profit - estimated_loss
+            
+            if potential_total_profit < -self.MAX_DAILY_LOSS:
+                return False, f"잠재 손실 포함 한도 초과 (여유: ₩{(self.MAX_DAILY_LOSS + self.current_stats.total_profit):,.0f})"
         
         return True, "OK"
     
