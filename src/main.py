@@ -203,6 +203,20 @@ async def main():
     logger.info("🚀 CryptoBot Studio v0.1.0")
     logger.info("=" * 50)
     
+    # Proxy 설정 (고정 IP)
+    if settings.proxy_url:
+        os.environ["HTTP_PROXY"] = settings.proxy_url
+        os.environ["HTTPS_PROXY"] = settings.proxy_url
+        
+        # 로깅 시 비밀번호 마스킹
+        masked_proxy = settings.proxy_url
+        if "@" in settings.proxy_url:
+            protocol, auth_host = settings.proxy_url.split("://", 1)
+            credentials, host = auth_host.split("@", 1)
+            masked_proxy = f"{protocol}://*****:*****@{host}"
+            
+        logger.info(f"🌐 Proxy 설정됨: {masked_proxy}")
+    
     # 설정 출력
     logger.info(f"📊 거래 대상: 거래대금 상위 5개 종목 (동적)")
     logger.info(f"💰 1회 금액: ₩{settings.trade_amount:,.0f}")

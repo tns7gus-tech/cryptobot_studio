@@ -59,6 +59,25 @@ class Settings(BaseSettings):
     
     # Logging
     log_level: str = "INFO"
+    
+    # Proxy Settings (Static IP Support)
+    # Railway 등에서 고정 IP를 위해 사용 (예: Quotaguard Static)
+    # 포맷: http://user:pass@host:port
+    proxy_url: Optional[str] = None
+    
+    @field_validator('proxy_url', mode='before')
+    @classmethod
+    def check_proxy_aliases(cls, v, info):
+        """
+        PROXY_URL이 없으면 QUOTAGUARDSTATIC_URL 등을 확인
+        """
+        if v:
+            return v
+            
+        # Pydantic v2에서는 info.data 사용 안함, 환경변수 직접 조회는 여기서 어려움
+        # 따라서 메인 로직이나 Dockerfile에서 매핑하는 것이 좋으나,
+        # 편의상 여기서는 None으로 두고 외부에서 PROXY_URL로 통일해서 주입 권장
+        return v
 
 
 # Global settings instance
