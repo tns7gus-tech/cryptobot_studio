@@ -114,6 +114,52 @@ class UpbitClient:
             logger.error(f"전체 잔고 조회 실패: {e}")
             return []
     
+    def get_top_volume_tickers(self, limit: int = 10) -> List[str]:
+        """
+        24시간 거래대금 상위 종목 조회 (KRW 마켓만)
+        
+        Args:
+            limit: 상위 몇 개를 가져올지 (기본 10개)
+            
+        Returns:
+            거래대금 상위 종목 리스트 (예: ["KRW-BTC", "KRW-XRP", ...])
+        """
+        try:
+            # KRW 마켓 전체 티커 조회
+            tickers = pyupbit.get_tickers(fiat="KRW")
+            if not tickers:
+                logger.error("KRW 마켓 티커 조회 실패")
+                return []
+            
+            # 각 티커의 24시간 거래대금 조회
+            ticker_data = pyupbit.get_current_price(tickers, verbose=True)
+            
+            if not ticker_data:
+                logger.error("티커 정보 조회 실패")
+                return []
+            
+            # 리스트로 변환 (단일 티커인 경우 대비)
+            if isinstance(ticker_data, dict):
+                ticker_data = [ticker_data]
+            
+            # 거래대금 기준 정렬 (acc_trade_price_24h)
+            sorted_tickers = sorted(
+                ticker_data,
+                key=lambda x: float(x.get('acc_trade_price_24h', 0) or 0),
+                reverse=True
+            )
+            
+            # 상위 N개 심볼 추출
+            top_symbols = [t['market'] for t in sorted_tickers[:limit]]
+            
+            logger.info(f"📊 거래대금 상위 {limit}개: {', '.join(top_symbols)}")
+            return top_symbols
+            
+        except Exception as e:
+            logger.error(f"거래대금 상위 종목 조회 실패: {e}")
+            return []
+
+    
     def get_current_price(self, symbol: str = None) -> Optional[float]:
         """
         현재가 조회

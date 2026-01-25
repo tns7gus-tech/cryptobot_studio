@@ -64,7 +64,7 @@ class CryptoBotOrchestrator:
             check_interval: 분석 주기 (초, 기본 5분)
         """
         self.check_interval = check_interval
-        self.trader = AutoTrader()
+        self.trader = AutoTrader(top_n=5)  # 거래대금 상위 5개 종목
         self.notifier = TelegramNotifier()
         self.risk_manager = RiskManager()
         
@@ -130,7 +130,7 @@ class CryptoBotOrchestrator:
     
     async def monitor_loop(self):
         """
-        메인 모니터링 루프
+        메인 모니터링 루프 (멀티 심볼)
         """
         logger.info(f"📡 모니터링 시작 (주기: {self.check_interval}초)")
         
@@ -149,16 +149,17 @@ class CryptoBotOrchestrator:
                     await asyncio.sleep(self.check_interval)
                     continue
                 
-                # 분석 및 거래 실행
-                logger.debug("📊 시장 분석 중...")
-                result = await self.trader.run_once()
+                # 분석 및 거래 실행 (멀티 심볼)
+                results = await self.trader.run_once()
                 
-                if result.success:
-                    if result.action not in ["HOLD", "ANALYZE"]:
-                        logger.success(f"✅ {result}")
-                else:
-                    if result.error:
-                        logger.warning(f"⚠️ {result}")
+                # 결과 로깅
+                for result in results:
+                    if result.success:
+                        if result.action not in ["HOLD", "ANALYZE"]:
+                            logger.success(f"✅ {result}")
+                    else:
+                        if result.error:
+                            logger.warning(f"⚠️ {result}")
                 
                 # 일일 리포트 체크
                 await self._check_daily_report()
@@ -200,7 +201,7 @@ async def main():
     logger.info("=" * 50)
     
     # 설정 출력
-    logger.info(f"📊 마켓: {settings.trade_symbol}")
+    logger.info(f"📊 거래 대상: 거래대금 상위 5개 종목 (동적)")
     logger.info(f"💰 1회 금액: ₩{settings.trade_amount:,.0f}")
     logger.info(f"⚙️ 모드: {settings.bot_mode}")
     logger.info(f"📈 전략: 오더북 스컄핑 (비율: {settings.scalping_bid_ask_ratio}x, 익절: +{settings.scalping_take_profit}%, 손절: -{settings.scalping_stop_loss}%)")
