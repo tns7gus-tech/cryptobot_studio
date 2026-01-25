@@ -390,32 +390,38 @@ class UpbitClient:
         try:
             orderbook = pyupbit.get_orderbook(symbol)
             
-            # 정상적인 응답은 리스트 형태 ([{...}])
+            # 1. 리스트인 경우 (일반적인 경우)
             if isinstance(orderbook, list) and len(orderbook) > 0:
                 ob = orderbook[0]
-                total_ask = ob.get('total_ask_size', 0)
-                total_bid = ob.get('total_bid_size', 0)
-                
-                # 매수/매도 비율 계산 (0으로 나누기 방지)
-                bid_ask_ratio = total_bid / total_ask if total_ask > 0 else 0
-                
-                result = {
-                    'total_ask_size': total_ask,
-                    'total_bid_size': total_bid,
-                    'bid_ask_ratio': bid_ask_ratio,
-                    'orderbook_units': ob.get('orderbook_units', [])
-                }
-                
-                logger.debug(f"오더북 조회: 매수잔량={total_bid:.2f}, 매도잔량={total_ask:.2f}, 비율={bid_ask_ratio:.2f}x")
-                return result
-            
-            # 에러 응답인 경우 (딕셔너리)
+            # 2. 딕셔너리인 경우 (단일 조회 시 등) - 에러가 아니라 정상 데이터일 수 있음
             elif isinstance(orderbook, dict):
-                error_msg = orderbook.get('error', orderbook)
-                logger.error(f"오더북 조회 API 에러 ({symbol}): {error_msg}")
+                # 에러 메시지가 있는 경우만 에러로 처리
+                if 'error' in orderbook:
+                    error_msg = orderbook.get('error')
+                    logger.error(f"오더북 조회 API 에러 ({symbol}): {error_msg}")
+                    return None
+                # 에러가 아니면 정상 데이터로 처리
+                ob = orderbook
+            else:
                 return None
-                
-            return None
+            
+            # 데이터 파싱
+            total_ask = ob.get('total_ask_size', 0)
+            total_bid = ob.get('total_bid_size', 0)
+            
+            # 매수/매도 비율 계산 (0으로 나누기 방지)
+            bid_ask_ratio = total_bid / total_ask if total_ask > 0 else 0
+            
+            result = {
+                'total_ask_size': total_ask,
+                'total_bid_size': total_bid,
+                'bid_ask_ratio': bid_ask_ratio,
+                'orderbook_units': ob.get('orderbook_units', [])
+            }
+            
+            logger.debug(f"오더북 조회: 매수잔량={total_bid:.2f}, 매도잔량={total_ask:.2f}, 비율={bid_ask_ratio:.2f}x")
+            return result
+
         except Exception as e:
             logger.error(f"오더북 조회 실패 ({symbol}): {e}")
             return None
