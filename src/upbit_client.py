@@ -389,7 +389,9 @@ class UpbitClient:
         
         try:
             orderbook = pyupbit.get_orderbook(symbol)
-            if orderbook and len(orderbook) > 0:
+            
+            # 정상적인 응답은 리스트 형태 ([{...}])
+            if isinstance(orderbook, list) and len(orderbook) > 0:
                 ob = orderbook[0]
                 total_ask = ob.get('total_ask_size', 0)
                 total_bid = ob.get('total_bid_size', 0)
@@ -406,6 +408,13 @@ class UpbitClient:
                 
                 logger.debug(f"오더북 조회: 매수잔량={total_bid:.2f}, 매도잔량={total_ask:.2f}, 비율={bid_ask_ratio:.2f}x")
                 return result
+            
+            # 에러 응답인 경우 (딕셔너리)
+            elif isinstance(orderbook, dict):
+                error_msg = orderbook.get('error', orderbook)
+                logger.error(f"오더북 조회 API 에러 ({symbol}): {error_msg}")
+                return None
+                
             return None
         except Exception as e:
             logger.error(f"오더북 조회 실패 ({symbol}): {e}")
