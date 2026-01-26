@@ -57,6 +57,41 @@ class FVGResult:
         return f"{emoji} FVG({self.direction}): 갭 ₩{self.gap_bottom:,.0f}~₩{self.gap_top:,.0f} ({self.gap_percent:.2f}%), SL: ₩{self.stop_loss:,.0f}"
 
 
+@dataclass
+class OrderBlockResult:
+    """ICT Order Block 탐지 결과"""
+    found: bool
+    direction: str  # "BULLISH" or "BEARISH" or "NONE"
+    level: float  # OB 핵심 레벨 가격
+    zone_top: float  # OB 영역 상단
+    zone_bottom: float  # OB 영역 하단
+    strength: int  # 연속 캔들 수 (강도 지표)
+    candle_time: Optional[str]  # OB 발생 캔들 시간
+    
+    def __str__(self):
+        if not self.found:
+            return "OrderBlock: 미발견"
+        emoji = "🟢" if self.direction == "BULLISH" else "🔴"
+        return f"{emoji} OB({self.direction}): ₩{self.zone_bottom:,.0f}~₩{self.zone_top:,.0f} (강도: {self.strength})"
+
+
+@dataclass
+class LiquidityPoolResult:
+    """ICT Liquidity Pool 탐지 결과"""
+    found: bool
+    pool_type: str  # "SWING_HIGH" or "SWING_LOW" or "NONE"
+    level: float  # 유동성 레벨 (스윙 포인트 가격)
+    zone_top: float  # 유동성 영역 상단
+    zone_bottom: float  # 유동성 영역 하단
+    touch_count: int  # 해당 레벨 터치 횟수 (미체결 주문 축적 추정)
+    
+    def __str__(self):
+        if not self.found:
+            return "LiquidityPool: 미발견"
+        emoji = "🔼" if self.pool_type == "SWING_HIGH" else "🔽"
+        return f"{emoji} LP({self.pool_type}): ₩{self.level:,.0f} (터치: {self.touch_count}회)"
+
+
 def calculate_rsi(
     prices: pd.Series,
     period: int = 14,
@@ -377,54 +412,303 @@ def detect_fvg(
         return None
 
 
+def detect_order_block(
+    df: pd.DataFrame,
+    lookback: int = 30,
+    min_consecutive: int = 2,
+    min_body_ratio: float = 0.5
+) -> Optional[OrderBlockResult]:
+    """
+    ICT Order Block 탐지
+    
+    Order Block = 기관이 대량 매수/매도한 구간의 마지막 반대 캔들
+    - Bullish OB: 강한 상승 전 마지막 하락 캔들 (지지 영역)
+    - Bearish OB: 강한 하락 전 마지막 상승 캔들 (저항 영역)
+    
+    Args:
+        df: OHLCV DataFrame
+        lookback: 탐지할 캔들 수
+        min_consecutive: 최소 연속 캔들 수 (강도)
+        min_body_ratio: 최소 몸통 비율 (0~1)
+        
+    Returns:
+        OrderBlockResult
+    """
+    if df is None or len(df) < lookback:
+        return None
+    
+    try:
+        df = df.tail(lookback).reset_index(drop=False)
+        
+        # 뒤에서부터 탐색 (최신 OB 찾기)
+        for i in range(len(df) - 1, min_consecutive + 1, -1):
+            # 최근 연속 상승/하락 체크
+            consecutive_up = 0
+            consecutive_down = 0
+            
+            for j in range(i, max(i - 5, 0), -1):
+                candle = df.iloc[j]
+                if candle['close'] > candle['open']:
+                    consecutive_up += 1
+                    consecutive_down = 0
+                else:
+                    consecutive_down += 1
+                    consecutive_up = 0
+                    
+                if consecutive_up >= min_consecutive or consecutive_down >= min_consecutive:
+                    break
+            
+            # Bullish OB: 연속 상승 직전의 마지막 음봉
+            if consecutive_up >= min_consecutive:
+                # OB 캔들 찾기 (상승 직전의 음봉)
+                ob_idx = i - consecutive_up
+                if ob_idx >= 0:
+                    ob_candle = df.iloc[ob_idx]
+                    if ob_candle['close'] < ob_candle['open']:  # 음봉 확인
+                        body = abs(ob_candle['close'] - ob_candle['open'])
+                        total_range = ob_candle['high'] - ob_candle['low']
+                        body_ratio = body / total_range if total_range > 0 else 0
+                        
+                        if body_ratio >= min_body_ratio:
+                            time_str = str(ob_candle['index']) if 'index' in df.columns else None
+                            return OrderBlockResult(
+                                found=True,
+                                direction="BULLISH",
+                                level=ob_candle['low'],
+                                zone_top=ob_candle['open'],
+                                zone_bottom=ob_candle['low'],
+                                strength=consecutive_up,
+                                candle_time=time_str
+                            )
+            
+            # Bearish OB: 연속 하락 직전의 마지막 양봉
+            if consecutive_down >= min_consecutive:
+                ob_idx = i - consecutive_down
+                if ob_idx >= 0:
+                    ob_candle = df.iloc[ob_idx]
+                    if ob_candle['close'] > ob_candle['open']:  # 양봉 확인
+                        body = abs(ob_candle['close'] - ob_candle['open'])
+                        total_range = ob_candle['high'] - ob_candle['low']
+                        body_ratio = body / total_range if total_range > 0 else 0
+                        
+                        if body_ratio >= min_body_ratio:
+                            time_str = str(ob_candle['index']) if 'index' in df.columns else None
+                            return OrderBlockResult(
+                                found=True,
+                                direction="BEARISH",
+                                level=ob_candle['high'],
+                                zone_top=ob_candle['high'],
+                                zone_bottom=ob_candle['close'],
+                                strength=consecutive_down,
+                                candle_time=time_str
+                            )
+        
+        # OB 없음
+        return OrderBlockResult(
+            found=False,
+            direction="NONE",
+            level=0,
+            zone_top=0,
+            zone_bottom=0,
+            strength=0,
+            candle_time=None
+        )
+        
+    except Exception as e:
+        logger.error(f"Order Block 탐지 에러: {e}")
+        return None
+
+
+def detect_liquidity_pool(
+    df: pd.DataFrame,
+    lookback: int = 50,
+    swing_period: int = 5,
+    buffer_percent: float = 0.1
+) -> Optional[LiquidityPoolResult]:
+    """
+    ICT Liquidity Pool 탐지
+    
+    Liquidity Pool = 손절매 주문이 몰려있을 것으로 예상되는 스윙 포인트
+    - Swing High: 좌우 N개 캔들보다 높은 고점 (위에 손절매 주문 축적)
+    - Swing Low: 좌우 N개 캔들보다 낮은 저점 (아래에 손절매 주문 축적)
+    
+    Args:
+        df: OHLCV DataFrame
+        lookback: 탐지할 캔들 수
+        swing_period: 스윙 판단 기간 (좌우 각각)
+        buffer_percent: 유동성 영역 버퍼 (%)
+        
+    Returns:
+        LiquidityPoolResult
+    """
+    if df is None or len(df) < lookback:
+        return None
+    
+    try:
+        df = df.tail(lookback).reset_index(drop=True)
+        
+        swing_highs = []
+        swing_lows = []
+        
+        # 스윙 포인트 탐지
+        for i in range(swing_period, len(df) - swing_period):
+            candle = df.iloc[i]
+            
+            # Swing High 체크
+            is_swing_high = True
+            for j in range(i - swing_period, i + swing_period + 1):
+                if j != i and df.iloc[j]['high'] >= candle['high']:
+                    is_swing_high = False
+                    break
+            if is_swing_high:
+                swing_highs.append((i, candle['high']))
+            
+            # Swing Low 체크
+            is_swing_low = True
+            for j in range(i - swing_period, i + swing_period + 1):
+                if j != i and df.iloc[j]['low'] <= candle['low']:
+                    is_swing_low = False
+                    break
+            if is_swing_low:
+                swing_lows.append((i, candle['low']))
+        
+        # 가장 최근의 스윙 포인트 선택
+        current_price = df.iloc[-1]['close']
+        
+        # 현재가 기준으로 가장 가까운 LP 찾기
+        closest_high = None
+        closest_low = None
+        
+        if swing_highs:
+            # 현재가 위의 가장 가까운 Swing High
+            highs_above = [(idx, level) for idx, level in swing_highs if level > current_price]
+            if highs_above:
+                closest_high = min(highs_above, key=lambda x: x[1] - current_price)
+        
+        if swing_lows:
+            # 현재가 아래의 가장 가까운 Swing Low
+            lows_below = [(idx, level) for idx, level in swing_lows if level < current_price]
+            if lows_below:
+                closest_low = max(lows_below, key=lambda x: x[1])
+        
+        # 더 가까운 LP 반환
+        if closest_high and closest_low:
+            dist_high = closest_high[1] - current_price
+            dist_low = current_price - closest_low[1]
+            
+            if dist_high < dist_low:
+                level = closest_high[1]
+                buffer = level * buffer_percent / 100
+                return LiquidityPoolResult(
+                    found=True,
+                    pool_type="SWING_HIGH",
+                    level=level,
+                    zone_top=level + buffer,
+                    zone_bottom=level - buffer,
+                    touch_count=1
+                )
+            else:
+                level = closest_low[1]
+                buffer = level * buffer_percent / 100
+                return LiquidityPoolResult(
+                    found=True,
+                    pool_type="SWING_LOW",
+                    level=level,
+                    zone_top=level + buffer,
+                    zone_bottom=level - buffer,
+                    touch_count=1
+                )
+        elif closest_high:
+            level = closest_high[1]
+            buffer = level * buffer_percent / 100
+            return LiquidityPoolResult(
+                found=True,
+                pool_type="SWING_HIGH",
+                level=level,
+                zone_top=level + buffer,
+                zone_bottom=level - buffer,
+                touch_count=1
+            )
+        elif closest_low:
+            level = closest_low[1]
+            buffer = level * buffer_percent / 100
+            return LiquidityPoolResult(
+                found=True,
+                pool_type="SWING_LOW",
+                level=level,
+                zone_top=level + buffer,
+                zone_bottom=level - buffer,
+                touch_count=1
+            )
+        
+        # LP 없음
+        return LiquidityPoolResult(
+            found=False,
+            pool_type="NONE",
+            level=0,
+            zone_top=0,
+            zone_bottom=0,
+            touch_count=0
+        )
+        
+    except Exception as e:
+        logger.error(f"Liquidity Pool 탐지 에러: {e}")
+        return None
+
+
 # Test
 if __name__ == "__main__":
     import pyupbit
     
-    print("=== Technical Indicators Test ===\n")
+    print("=== ICT Technical Indicators Test ===\n")
     
-    # 실제 데이터 가져오기 (30분봉)
-    df = pyupbit.get_ohlcv("KRW-BTC", interval="minute30", count=100)
+    # ETH 데이터로 테스트 (BTC 제외 - 사용자 요청)
+    symbol = "KRW-ETH"
+    df = pyupbit.get_ohlcv(symbol, interval="minute60", count=100)
     
     if df is not None:
         prices = df['close']
+        current_price = pyupbit.get_current_price(symbol)
+        print(f"📌 {symbol} 현재가: ₩{current_price:,.0f}\n")
         
-        # RSI
-        rsi = calculate_rsi(prices)
-        if rsi:
-            print(f"📊 {rsi}")
+        # 1. Order Block
+        print("=== Order Block ===")
+        ob = detect_order_block(df)
+        if ob:
+            print(f"   {ob}")
+            if ob.found:
+                print(f"   영역: ₩{ob.zone_bottom:,.0f} ~ ₩{ob.zone_top:,.0f}")
         
-        # Bollinger Bands
-        bb = calculate_bollinger_bands(prices)
-        if bb:
-            print(f"📈 {bb}")
-        
-        # SMA/EMA
-        sma20 = calculate_sma(prices, 20)
-        ema20 = calculate_ema(prices, 20)
-        if sma20 and ema20:
-            print(f"📉 SMA(20): ₩{sma20:,.0f}, EMA(20): ₩{ema20:,.0f}")
-        
-        # MACD
-        macd = calculate_macd(prices)
-        if macd:
-            print(f"📊 MACD: {macd[0]:,.0f}, Signal: {macd[1]:,.0f}, Hist: {macd[2]:,.0f}")
-        
-        # FVG (ICT)
-        print("\n=== ICT FVG Test ===")
-        fvg = detect_fvg(df, min_gap_percent=0.05)
+        # 2. Fair Value Gap
+        print("\n=== Fair Value Gap ===")
+        fvg = detect_fvg(df, min_gap_percent=0.03)
         if fvg:
-            print(f"🎯 {fvg}")
-            if fvg.found:
-                current_price = pyupbit.get_current_price("KRW-BTC")
-                print(f"   현재가: ₩{current_price:,.0f}")
-                if fvg.direction == "BULLISH":
-                    if current_price <= fvg.gap_top and current_price >= fvg.gap_bottom:
-                        print(f"   ✅ 매수 진입 가능 (갭 영역 내)")
-                    elif current_price > fvg.gap_top:
-                        print(f"   ⏳ 대기 중 (가격이 갭 위)")
-                    else:
-                        print(f"   ❌ 손절 영역 (갭 하단 이탈)")
+            print(f"   {fvg}")
+        
+        # 3. Liquidity Pool
+        print("\n=== Liquidity Pool ===")
+        lp = detect_liquidity_pool(df)
+        if lp:
+            print(f"   {lp}")
+            if lp.found:
+                print(f"   영역: ₩{lp.zone_bottom:,.0f} ~ ₩{lp.zone_top:,.0f}")
+        
+        # 4. Confluence 체크
+        print("\n=== ICT Confluence 분석 ===")
+        score = 0
+        if ob and ob.found: 
+            score += 30
+            print(f"   ✅ Order Block 발견 (+30점)")
+        if fvg and fvg.found: 
+            score += 30
+            print(f"   ✅ FVG 발견 (+30점)")
+        if lp and lp.found: 
+            score += 20
+            print(f"   ✅ Liquidity Pool 발견 (+20점)")
+        
+        print(f"\n   📊 총점: {score}점 / 80점 {'✅ 진입 가능' if score >= 80 else '❌ 대기'}")
+        
     else:
         print("❌ 데이터 조회 실패")
+
 

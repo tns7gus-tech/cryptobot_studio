@@ -152,10 +152,9 @@ class TelegramNotifier:
 • 총 투자: ₩{total_wagered:,.0f}
 {profit_emoji} 손익: ₩{total_profit:+,.0f}
 
-🎯 <b>오더북 스캘핑 전략</b>
-• 거래대금 상위 5개 종목
-• 익절: +{settings.scalping_take_profit}%
-• 손절: -{settings.scalping_stop_loss}%
+🎯 <b>하이브리드 전략</b>
+• ICT(30%): 고승률, 목표 +{settings.ict_take_profit}%
+• Trend(15%): 고빈도, 목표 +{settings.trend_take_profit}%
 ━━━━━━━━━━━━━━━━━━━━━
         """.strip()
         
@@ -181,14 +180,14 @@ class TelegramNotifier:
 🚀 <b>CryptoBot Studio 시작</b>
 ━━━━━━━━━━━━━━━━━━━━━
 ⚙️ 모드: {mode_str}
-📊 거래대금 상위 5개 종목:
+📊 거래 대상 (BTC 제외):
 {tickers_str}
-💰 1회 금액: ₩{settings.trade_amount:,.0f}
+💰 포지션 크기: ICT 30%, Trend 15%
 
-🎯 <b>오더북 스캘핑 전략</b>
-• 매수비율: {settings.scalping_bid_ask_ratio}x 이상
-• 익절: +{settings.scalping_take_profit}%
-• 손절: -{settings.scalping_stop_loss}%
+🎯 <b>하이브리드 전략 (ICT + Trend)</b>
+• ICT: Confluence 50점+, 익절 +{settings.ict_take_profit}%
+• Trend: RSI+EMA 스캘핑, 익절 +{settings.trend_take_profit}%
+• 목표: 일 1% 수익 달성 시 보수적 운용
 
 🛡️ <b>리스크 관리</b>
 • 일일 최대 거래: {settings.max_daily_trades}회

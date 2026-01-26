@@ -61,10 +61,10 @@ class CryptoBotOrchestrator:
     def __init__(self, check_interval: int = 300):
         """
         Args:
-            check_interval: 분석 주기 (초, 기본 5분)
+            check_interval: 분석 주기 (초, 기본 5분 = 300초) - 하이브리드 전략
         """
         self.check_interval = check_interval
-        self.trader = AutoTrader(top_n=5)  # 거래대금 상위 5개 종목
+        self.trader = AutoTrader()  # 하이브리드 전략 (ICT + Trend)
         self.notifier = TelegramNotifier()
         self.risk_manager = RiskManager()
         
@@ -80,13 +80,13 @@ class CryptoBotOrchestrator:
         await self.trader.start()
         await self.notifier.start()
         
-        # 거래대금 상위 5개 종목 조회
-        top_tickers = self.trader.upbit.get_top_volume_tickers(5)
+        # 하이브리드 전략 시작 알림
+        await self.notifier.send_startup_message(
+            mode=settings.bot_mode, 
+            top_tickers=self.trader.target_symbols
+        )
         
-        # 시작 알림 (상위 종목 포함)
-        await self.notifier.send_startup_message(mode=settings.bot_mode, top_tickers=top_tickers)
-        
-        logger.success("🚀 CryptoBot Studio 시작!")
+        logger.success("🚀 CryptoBot Studio 시작! (하이브리드: ICT + Trend Following)")
     
     async def stop(self, reason: str = "정상 종료"):
         """종료 처리"""
@@ -218,14 +218,17 @@ async def main():
         logger.info(f"🌐 Proxy 설정됨: {masked_proxy}")
     
     # 설정 출력
-    logger.info(f"📊 거래 대상: 거래대금 상위 5개 종목 (동적)")
+    target_symbols = settings.ict_target_symbols
+    logger.info(f"📊 거래 대상: {target_symbols} (BTC 제외)")
     logger.info(f"💰 1회 금액: ₩{settings.trade_amount:,.0f}")
     logger.info(f"⚙️ 모드: {settings.bot_mode}")
-    logger.info(f"📈 전략: 오더북 스컄핑 (비율: {settings.scalping_bid_ask_ratio}x, 익절: +{settings.scalping_take_profit}%, 손절: -{settings.scalping_stop_loss}%)")
+    logger.info(f"📈 전략: 하이브리드 (ICT 고승률 + 추세 고빈도)")
+    logger.info(f"   - ICT: Confluence 80점+, 익절 +2%, 손절 -1%")
+    logger.info(f"   - 추세: RSI+EMA, 익절 +0.3%, 손절 -0.5%")
     logger.info("")
     
-    # 10초 주기로 분석 (오더북 스컄핑은 빠른 체크 필요)
-    orchestrator = CryptoBotOrchestrator(check_interval=10)
+    # 5분 주기로 분석 (하이브리드 전략)
+    orchestrator = CryptoBotOrchestrator(check_interval=300)
     
     # Cloud Run 헬스체크용 HTTP 서버
     async def health_check(request):

@@ -204,36 +204,60 @@ class OrderbookScalpingBacktest:
 
 def main():
     """백테스트 실행"""
-    print("🔄 데이터 로딩 중...")
+    print("🔄 데이터 로딩 및 백테스트 시작...")
     
-    # 오늘 날짜 1분봉 데이터 조회 (최대 200개 = 약 3.3시간)
-    symbol = "KRW-ETH"
-    df = pyupbit.get_ohlcv(symbol, interval="minute1", count=200)
+    # 테스트할 종목 리스트 (변동성 큰 것과 안정적인 것 섞어서)
+    symbols = ["KRW-BTC", "KRW-XRP", "KRW-DOGE", "KRW-SOL"]
     
-    if df is None or len(df) == 0:
-        print("❌ 데이터 조회 실패")
-        return
+    total_profit_all = 0
+    total_trades_all = 0
+    wins_all = 0
     
-    # 시간대 변환
-    df.index = df.index.tz_localize('UTC').tz_convert(KST)
+    for symbol in symbols:
+        try:
+            # 최근 24시간 (60분봉 * 24) or 1분봉 * 1440
+            # 스캘핑이므로 1분봉 4시간(240개) 정도 테스트
+            df = pyupbit.get_ohlcv(symbol, interval="minute1", count=240)
+            
+            if df is None or len(df) == 0:
+                print(f"❌ {symbol} 데이터 조회 실패")
+                continue
+            
+            # 시간대 변환
+            df.index = df.index.tz_localize('UTC').tz_convert(KST)
+            
+            # 백테스트 실행 (설정값 업데이트: 익절 1.5%, 손절 1.0%)
+            backtest = OrderbookScalpingBacktest(
+                symbol=symbol,
+                trade_amount=10000,
+                take_profit=1.5,
+                stop_loss=1.0,
+                fee_rate=0.05
+            )
+            
+            results = backtest.run_backtest(df)
+            backtest.print_results(results)
+            
+            total_profit_all += results['total_profit']
+            total_trades_all += results['total_trades']
+            wins_all += results['win_trades']
+            
+        except Exception as e:
+            print(f"❌ {symbol} 에러: {e}")
+            
+    print("\n" + "*" * 60)
+    print(f"📊 [종합 결과] 오늘 예상 하루 수익 (4시간 데이터 기준)")
+    print(f"   - 총 거래: {total_trades_all}회")
+    win_rate_all = (wins_all / total_trades_all * 100) if total_trades_all > 0 else 0
+    print(f"   - 평균 승률: {win_rate_all:.1f}%")
     
-    print(f"✅ 데이터 로드 완료: {len(df)}개 캔들")
-    print(f"   - 시작: {df.index[0].strftime('%Y-%m-%d %H:%M')}")
-    print(f"   - 종료: {df.index[-1].strftime('%Y-%m-%d %H:%M')}")
-    
-    # 백테스트 실행
-    backtest = OrderbookScalpingBacktest(
-        symbol=symbol,
-        trade_amount=10000,
-        take_profit=0.35,
-        stop_loss=0.5,
-        fee_rate=0.05
-    )
-    
-    results = backtest.run_backtest(df)
-    backtest.print_results(results)
-    
-    return results
+    # 단순 4시간 수익 * 6 = 하루 예상 수익 (단순 계산)
+    daily_proj = total_profit_all * 6
+    print(f"   - 4시간 실현 수익: ₩{total_profit_all:,.0f}")
+    print(f"   - 하루 예상 수익 ({len(symbols)}종목 운용 시): ₩{daily_proj:,.0f}")
+    print("*" * 60)
+    print("※ 주의: 과거 오더북 데이터 부재로 OHLCV 변동성 기반 시뮬레이션 결과입니다.")
+    print("        실제 지정가 체결 및 갭 체크가 적용되면 승률이 더 높을 수 있습니다.")
 
 
 if __name__ == "__main__":

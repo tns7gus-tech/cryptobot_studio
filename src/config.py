@@ -42,13 +42,22 @@ class Settings(BaseSettings):
     bb_period: int = 20
     bb_std: float = 2.0
     
-    # Orderbook Scalping Settings
-    scalping_bid_ask_ratio: float = 2.0   # 매수/매도 비율 임계값
-    scalping_take_profit: float = 1.5    # 익절 % (수수료 0.1% 고려, 목표 상향)
-    scalping_stop_loss: float = 1.0       # 손절 % (조금 더 여유 있게)
+    # ICT Strategy Settings (스캘핑 대체)
+    ict_confluence_threshold: int = 80  # 진입 최소 점수
+    ict_min_rr_ratio: float = 2.0       # 최소 손익비
+    ict_take_profit: float = 2.0        # 익절 %
+    ict_stop_loss: float = 1.0          # 손절 %
+    
+    # Trend Strategy Settings (추세추종)
+    trend_take_profit: float = 0.3      # 익절 %
+    trend_stop_loss: float = 0.5        # 손절 %
+    
+    # 고정 거래 대상 (BTC 제외 - DCA 장기투자 보호)
+    # ETH, USDT, SOL, XRP만 거래
+    ict_target_symbols: str = "KRW-ETH,KRW-USDT,KRW-SOL,KRW-XRP"
     
     # Risk Management
-    max_daily_trades: int = 100  # 스캘핑은 고빈도
+    max_daily_trades: int = 20  # ICT는 저빈도
     max_daily_loss: float = 50000  # KRW
     
     # Bot Mode
