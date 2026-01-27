@@ -72,6 +72,7 @@ class CryptoBotOrchestrator:
         
         self.running = False
         self._last_report_date = None
+        self._last_weekly_report_date = None  # 주간 리포트 추적
         
         logger.info("🤖 CryptoBot Studio 초기화 완료")
     
@@ -131,6 +132,41 @@ class CryptoBotOrchestrator:
         if now.hour == 0 and now.minute < 5:
             await self._send_daily_report()
     
+    async def _check_weekly_report(self):
+        """
+        매주 일요일 09:00에 시장 분석 리포트 발송
+        """
+        now = datetime.now(pytz.timezone(settings.timezone))
+        today = now.date()
+        
+        # 일요일(6) 09:00~09:05 사이에 발송
+        if now.weekday() == 6 and now.hour == 9 and now.minute < 5:
+            # 이미 이번 주 발송했으면 스킵
+            if self._last_weekly_report_date == today:
+                return
+            
+            logger.info("📊 주간 시장 분석 리포트 생성 중...")
+            
+            try:
+                from market_analyzer import MarketAnalyzer
+                import pyupbit
+                
+                analyzer = MarketAnalyzer()
+                market_states = {}
+                
+                for symbol in self.trader.target_symbols:
+                    df = pyupbit.get_ohlcv(symbol, interval="minute60", count=100)
+                    if df is not None:
+                        state = analyzer.analyze(df)
+                        market_states[symbol] = state
+                
+                await self.notifier.send_weekly_market_report(market_states)
+                self._last_weekly_report_date = today
+                logger.success("📊 주간 시장 분석 리포트 발송 완료")
+                
+            except Exception as e:
+                logger.error(f"주간 리포트 발송 에러: {e}")
+    
     async def monitor_loop(self):
         """
         메인 모니터링 루프 (멀티 심볼)
@@ -166,6 +202,9 @@ class CryptoBotOrchestrator:
                 
                 # 일일 리포트 체크
                 await self._check_daily_report()
+                
+                # 주간 시장 분석 리포트 체크 (일요일 09:00)
+                await self._check_weekly_report()
                 
                 # 다음 체크까지 대기
                 await asyncio.sleep(self.check_interval)

@@ -271,6 +271,84 @@ class TelegramNotifier:
         """.strip()
         
         return await self.send_message(message)
+    
+    async def send_weekly_market_report(
+        self,
+        market_states: dict
+    ) -> bool:
+        """
+        주간 시장 분석 리포트 발송 (일요일 09:00)
+        
+        Args:
+            market_states: {symbol: MarketState} 딕셔너리
+        """
+        # 전체 시장 방향 판단
+        trends = []
+        for symbol, state in market_states.items():
+            if state:
+                trends.append(state.trend.value)
+        
+        # 하락 vs 상승 vs 횡보 카운트
+        up_count = sum(1 for t in trends if "UP" in t)
+        down_count = sum(1 for t in trends if "DOWN" in t)
+        ranging_count = sum(1 for t in trends if "RANGING" in t)
+        
+        # 전체 시장 판단
+        if down_count >= len(trends) // 2 + 1:
+            market_direction = "하락 추세"
+            direction_emoji = "📉"
+            recommendation = "SKIP (거래 미권장)"
+            rec_emoji = "⛔"
+            advice = "하락장에서 매수 전략은 손실 위험이 높습니다."
+        elif up_count >= len(trends) // 2 + 1:
+            market_direction = "상승 추세"
+            direction_emoji = "📈"
+            recommendation = "ACTIVE (적극 거래)"
+            rec_emoji = "✅"
+            advice = "상승장에서 ICT Confluence 전략이 효과적입니다."
+        else:
+            market_direction = "횡보/혼조"
+            direction_emoji = "➡️"
+            recommendation = "CONSERVATIVE (보수적 거래)"
+            rec_emoji = "🟡"
+            advice = "횡보장에서는 평균회귀 전략을 고려하세요."
+        
+        # 개별 코인 상태
+        coin_status_lines = []
+        for symbol, state in market_states.items():
+            ticker = symbol.split('-')[1]
+            if state:
+                vol = state.volatility.value
+                trend = state.trend.value
+                rsi = state.rsi
+                coin_status_lines.append(f"• {ticker}: {trend} (변동성: {vol}, RSI: {rsi:.1f})")
+            else:
+                coin_status_lines.append(f"• {ticker}: 데이터 없음")
+        
+        coin_status = "\n".join(coin_status_lines)
+        
+        message = f"""
+{direction_emoji} <b>주간 시장 분석 리포트</b>
+━━━━━━━━━━━━━━━━━━━━━
+📅 {self.get_now().strftime('%Y-%m-%d %H:%M')} (KST)
+
+🌍 <b>전체 시장</b>
+{direction_emoji} 현재 시장은 <b>{market_direction}</b>
+
+📊 <b>코인별 상태</b>
+{coin_status}
+
+🎯 <b>시스템 추천</b>
+{rec_emoji} {recommendation}
+
+💡 <b>조언</b>
+{advice}
+
+━━━━━━━━━━━━━━━━━━━━━
+<i>시장 분석기 v1.0 | 매주 일요일 09:00</i>
+        """.strip()
+        
+        return await self.send_message(message)
 
 
 # Test
