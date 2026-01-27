@@ -38,6 +38,11 @@ class BaseStrategy(ABC):
 
 class OrderbookScalpingStrategy(BaseStrategy):
     """
+    [DEPRECATED] 오더북 스캘핑 전략 - 현재 미사용
+    
+    TODO: 향후 제거 예정 (HybridStrategy로 대체됨)
+    
+    원래 설명:
     오더북 스캘핑 전략
     
     차트 지표 없이 오직 호가창 수급만 보고 매매:
@@ -174,6 +179,11 @@ class OrderbookScalpingStrategy(BaseStrategy):
 
 class MACDVolumeStrategy(BaseStrategy):
     """
+    [DEPRECATED] MACD 크로스 + 거래량 급증 전략 - 현재 미사용
+    
+    TODO: 향후 제거 예정 (HybridStrategy로 대체됨)
+    
+    원래 설명:
     MACD 크로스 + 거래량 급증 전략
     
     업비트 강세/약세지표의 "MACD크로스" 기반:
@@ -425,6 +435,11 @@ class RSIEMAStrategy(BaseStrategy):
 
 class BollingerBandStrategy(BaseStrategy):
     """
+    [DEPRECATED] 볼린저밴드 기반 매매 전략 - 현재 미사용
+    
+    TODO: 향후 제거 예정 (HybridStrategy로 대체됨)
+    
+    원래 설명:
     볼린저밴드 기반 매매 전략
     
     - 가격 < 하단밴드: 매수 신호

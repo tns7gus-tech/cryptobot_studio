@@ -60,6 +60,16 @@ class Settings(BaseSettings):
     max_daily_trades: int = 20  # ICT는 저빈도
     max_daily_loss: float = 50000  # KRW
     
+    # Trading Costs (정확한 수익 계산용)
+    fee_rate: float = 0.0005      # 업비트 수수료 0.05%
+    slippage_rate: float = 0.002  # 시장가 슬리피지 0.2%
+    
+    # API Rate Limiting
+    api_calls_per_second: int = 10  # 업비트 제한: 초당 10회
+    
+    # Legacy (하위 호환용)
+    scalping_stop_loss: float = 0.5  # risk_manager 호환
+    
     # Bot Mode
     bot_mode: Literal["semi", "full"] = "semi"
     

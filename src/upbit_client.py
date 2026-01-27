@@ -74,7 +74,7 @@ class UpbitClient:
         try:
             balance = self.upbit.get_balance("KRW")
             return balance is not None
-        except:
+        except Exception:
             return False
     
     def get_balance(self, ticker: str = "KRW") -> float:
@@ -204,10 +204,12 @@ class UpbitClient:
         self,
         symbol: str = None,
         interval: str = "minute60",
-        count: int = 200
+        count: int = 200,
+        use_cache: bool = True,
+        cache_ttl: float = 60.0
     ) -> Optional[Any]:
         """
-        OHLCV 캔들 데이터 조회
+        OHLCV 캔들 데이터 조회 (캐시 지원)
         
         Args:
             symbol: 마켓 심볼
@@ -216,14 +218,26 @@ class UpbitClient:
                 - "minute30", "minute60", "minute240"
                 - "day", "week", "month"
             count: 조회할 캔들 개수 (최대 200)
+            use_cache: 캐시 사용 여부 (기본 True)
+            cache_ttl: 캐시 유효 시간 (초, 기본 60초)
             
         Returns:
             pandas DataFrame (open, high, low, close, volume)
         """
+        from cache import get_ohlcv_cache, get_rate_limiter
+        
         symbol = symbol or settings.trade_symbol
         
         try:
-            df = pyupbit.get_ohlcv(symbol, interval=interval, count=count)
+            if use_cache:
+                cache = get_ohlcv_cache(ttl=cache_ttl)
+                df = cache.get(symbol, interval, count, ttl=cache_ttl)
+            else:
+                # Rate limiting for direct API calls
+                limiter = get_rate_limiter(settings.api_calls_per_second)
+                limiter.wait_if_needed()
+                df = pyupbit.get_ohlcv(symbol, interval=interval, count=count)
+            
             if df is not None and len(df) > 0:
                 logger.debug(f"OHLCV 조회 성공: {symbol} ({len(df)}개)")
                 return df
