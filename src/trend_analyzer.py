@@ -103,14 +103,26 @@ class TrendFollowingAnalyzer:
                 entry_price=0
             )
         
-        # 지표 계산
-        df = df.copy()
+        # 지표 계산 (원본 DataFrame에 컬럼 추가 - copy 불필요)
         df['rsi'] = self.calculate_rsi(df, self.rsi_period)
         df['ema_fast'] = self.calculate_ema(df, self.ema_fast_period)
         df['ema_slow'] = self.calculate_ema(df, self.ema_slow_period)
         
         current_price = current_price or df['close'].iloc[-1]
         current_rsi = df['rsi'].iloc[-1]
+        
+        # NaN 체크 (데이터 부족 시)
+        if pd.isna(current_rsi):
+            return TrendSignal(
+                action="HOLD",
+                confidence=0.0,
+                reason="RSI 계산 불가 (NaN)",
+                rsi=50,
+                ema_fast=0,
+                ema_slow=0,
+                entry_price=0
+            )
+        
         ema_fast = df['ema_fast'].iloc[-1]
         ema_slow = df['ema_slow'].iloc[-1]
         

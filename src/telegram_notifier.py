@@ -141,7 +141,7 @@ class TelegramNotifier:
         message = f"""
 📊 <b>일일 거래 리포트</b>
 ━━━━━━━━━━━━━━━━━━━━━
-📅 날짜: {datetime.now().strftime('%Y-%m-%d')}
+📅 날짜: {self.get_now().strftime('%Y-%m-%d')}
 
 💹 <b>거래 실적</b>
 • 총 거래: {total_trades}회
@@ -193,7 +193,7 @@ class TelegramNotifier:
 • 일일 최대 거래: {settings.max_daily_trades}회
 • 일일 손실 한도: ₩{settings.max_daily_loss:,.0f}
 
-🕐 시작 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🕐 시작 시각: {self.get_now().strftime('%Y-%m-%d %H:%M:%S')}
 ━━━━━━━━━━━━━━━━━━━━━
         """.strip()
         
@@ -205,7 +205,7 @@ class TelegramNotifier:
 ⏹️ <b>CryptoBot Studio 종료</b>
 ━━━━━━━━━━━━━━━━━━━━━
 📝 사유: {reason}
-🕐 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🕐 시각: {self.get_now().strftime('%Y-%m-%d %H:%M:%S')}
 ━━━━━━━━━━━━━━━━━━━━━
         """.strip()
         
@@ -217,7 +217,7 @@ class TelegramNotifier:
 ⚠️ <b>에러 발생</b>
 ━━━━━━━━━━━━━━━━━━━━━
 ❌ {error}
-🕐 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🕐 시각: {self.get_now().strftime('%Y-%m-%d %H:%M:%S')}
 ━━━━━━━━━━━━━━━━━━━━━
         """.strip()
         
@@ -265,7 +265,7 @@ class TelegramNotifier:
 💰 현재가: ₩{current_price:,.0f}
 🎯 신뢰도: {confidence:.0%}
 {fvg_info}📝 사유: {reason}
-🕐 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🕐 시각: {self.get_now().strftime('%Y-%m-%d %H:%M:%S')}
 ━━━━━━━━━━━━━━━━━━━━━
 <i>Semi-auto 모드: 수동 거래 필요</i>
         """.strip()
