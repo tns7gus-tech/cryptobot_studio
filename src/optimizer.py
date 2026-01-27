@@ -24,7 +24,7 @@ from indicators import detect_order_block, detect_fvg, detect_liquidity_pool
 
 @dataclass
 class BacktestResult:
-    """백테스트 결과"""
+    """백테스트 결과 (확장판)"""
     params: Dict[str, Any]
     total_trades: int
     win_count: int
@@ -34,6 +34,10 @@ class BacktestResult:
     sharpe_ratio: float
     win_rate: float
     avg_profit_per_trade: float
+    # 확장 지표
+    sortino_ratio: float = 0.0  # 하방 변동성 기준
+    calmar_ratio: float = 0.0   # 수익/최대손실
+    profit_factor: float = 0.0  # 총이익/총손실
     
     def __str__(self):
         return (
@@ -43,7 +47,9 @@ class BacktestResult:
             f"   승률: {self.win_rate:.1%}\n"
             f"   총 수익: {self.total_profit_pct:+.2f}%\n"
             f"   최대 손실폭: {self.max_drawdown_pct:.2f}%\n"
-            f"   평균 수익/거래: {self.avg_profit_per_trade:.3f}%"
+            f"   평균 수익/거래: {self.avg_profit_per_trade:.3f}%\n"
+            f"   Sharpe: {self.sharpe_ratio:.2f} | Sortino: {self.sortino_ratio:.2f}\n"
+            f"   Calmar: {self.calmar_ratio:.2f} | PF: {self.profit_factor:.2f}"
         )
 
 
@@ -192,12 +198,35 @@ class BacktestEngine:
         total_profit_pct = ((capital - self.initial_capital) / self.initial_capital) * 100
         avg_profit = sum(t.profit_pct for t in trades) / total_trades if total_trades > 0 else 0
         
-        # Sharpe Ratio (일별 수익률 기준, 연환산)
+        # 확장 지표 계산
+        sharpe = 0
+        sortino = 0
+        calmar = 0
+        profit_factor = 0
+        
         if trades:
             returns = [t.profit_pct for t in trades]
-            sharpe = (np.mean(returns) / np.std(returns)) * np.sqrt(252) if np.std(returns) > 0 else 0
-        else:
-            sharpe = 0
+            
+            # Sharpe Ratio (연환산)
+            if np.std(returns) > 0:
+                sharpe = (np.mean(returns) / np.std(returns)) * np.sqrt(252)
+            
+            # Sortino Ratio (하방 변동성만)
+            negative_returns = [r for r in returns if r < 0]
+            if negative_returns:
+                downside_std = np.std(negative_returns)
+                if downside_std > 0:
+                    sortino = (np.mean(returns) / downside_std) * np.sqrt(252)
+            
+            # Calmar Ratio (수익률 / 최대손실폭)
+            if max_drawdown > 0:
+                calmar = total_profit_pct / max_drawdown
+            
+            # Profit Factor (총이익 / 총손실)
+            gross_profit = sum(r for r in returns if r > 0)
+            gross_loss = abs(sum(r for r in returns if r < 0))
+            if gross_loss > 0:
+                profit_factor = gross_profit / gross_loss
         
         return BacktestResult(
             params={
@@ -213,7 +242,10 @@ class BacktestEngine:
             max_drawdown_pct=max_drawdown,
             sharpe_ratio=sharpe,
             win_rate=win_rate,
-            avg_profit_per_trade=avg_profit
+            avg_profit_per_trade=avg_profit,
+            sortino_ratio=sortino,
+            calmar_ratio=calmar,
+            profit_factor=profit_factor
         )
 
 
