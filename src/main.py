@@ -125,11 +125,11 @@ class CryptoBotOrchestrator:
         logger.info("📊 일일 리포트 발송 완료")
     
     async def _check_daily_report(self):
-        """매일 자정에 리포트 발송"""
+        """매일 23:50에 리포트 발송 (자정 리셋 전)"""
         now = datetime.now()
         
-        # 00:00 ~ 00:05 사이에 리포트 발송
-        if now.hour == 0 and now.minute < 5:
+        # 23:50 ~ 23:55 사이에 리포트 발송 (자정 리셋 전)
+        if now.hour == 23 and 50 <= now.minute < 55:
             await self._send_daily_report()
     
     async def _check_weekly_report(self):

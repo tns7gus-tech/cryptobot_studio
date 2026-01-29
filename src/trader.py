@@ -12,6 +12,7 @@ from upbit_client import UpbitClient, OrderResult
 from hybrid_strategy import HybridStrategy, HybridSignal
 from telegram_notifier import TelegramNotifier
 from risk_manager import RiskManager
+from market_analyzer import MarketAnalyzer
 
 
 @dataclass
@@ -76,6 +77,9 @@ class AutoTrader:
             ict_position_ratio=0.30,    # 최적화: 30% (공격적)
             trend_position_ratio=0.15   # 최적화: 15% (중간)
         )
+        
+        # 시장 분석기 (일론 머스크 원칙: 하락장에선 거래 중단)
+        self.market_analyzer = MarketAnalyzer()
         
         # 고정 거래 대상 (BTC 제외)
         self.target_symbols = [s.strip() for s in settings.ict_target_symbols.split(',')]
@@ -333,6 +337,23 @@ class AutoTrader:
         
         await self._sync_positions()
         
+        # 🚀 시장 상태 확인 (일론 머스크 원칙: 하락장에선 거래 중단)
+        market_state = None
+        try:
+            # BTC를 시장 지표로 사용 (가장 대표적)
+            btc_df = self.upbit.get_ohlcv("KRW-BTC", interval="minute60", count=100)
+            if btc_df is not None:
+                market_state = self.market_analyzer.analyze(btc_df)
+                if market_state:
+                    if market_state.is_bearish():
+                        logger.warning(f"📉 하락장 감지 - 매수 중단 (RSI: {market_state.rsi:.1f}, 추세: {market_state.trend.value})")
+                    elif market_state.is_bullish():
+                        logger.info(f"📈 상승장 감지 (RSI: {market_state.rsi:.1f}, 추세: {market_state.trend.value})")
+                    else:
+                        logger.info(f"➡️ 횡보장 감지 (RSI: {market_state.rsi:.1f}, 추세: {market_state.trend.value})")
+        except Exception as e:
+            logger.warning(f"시장 분석 실패 (계속 진행): {e}")
+        
         # 일일 목표 체크
         stats = self.strategy.get_daily_stats()
         if stats["target_achieved"]:
@@ -350,6 +371,11 @@ class AutoTrader:
                 
                 signal = self.analyze(symbol)
                 if signal is None:
+                    continue
+                
+                # 🚀 하락장에서 매수 신호 무시 (손절/익절은 유지)
+                if signal.action == "BUY" and market_state and market_state.is_bearish():
+                    logger.info(f"⛔ {symbol} 매수 신호 무시 (하락장)")
                     continue
                 
                 if signal.action != "HOLD":

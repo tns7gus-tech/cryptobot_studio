@@ -41,16 +41,51 @@ class MarketState:
     recommended_strategy: str
     position_size_multiplier: float
     
+    def is_bullish(self) -> bool:
+        """
+        상승장 판별 (일론 머스크 원칙: 단순하게)
+        - ADX > 20 (추세 존재)
+        - +DI > -DI (상승 추세) = STRONG_UP or WEAK_UP
+        - RSI 35~70 (과매수 아님)
+        """
+        is_uptrend = self.trend in [TrendRegime.STRONG_UP, TrendRegime.WEAK_UP]
+        rsi_ok = 35 <= self.rsi <= 70
+        return is_uptrend and rsi_ok
+    
+    def is_bearish(self) -> bool:
+        """
+        하락장 판별 (일론 머스크 원칙: 하락장에선 거래 중단)
+        - 하락 추세 (STRONG_DOWN or WEAK_DOWN)
+        - 또는 RSI < 35 (급락)
+        """
+        is_downtrend = self.trend in [TrendRegime.STRONG_DOWN, TrendRegime.WEAK_DOWN]
+        rsi_crash = self.rsi < 35
+        return is_downtrend or rsi_crash
+    
+    def should_trade(self) -> bool:
+        """
+        거래 권장 여부 (단순 규칙)
+        - 하락장이면 거래 안 함
+        - 전략 추천이 SKIP이면 거래 안 함
+        """
+        if self.is_bearish():
+            return False
+        if self.recommended_strategy == "SKIP":
+            return False
+        return True
+    
     def __str__(self):
         vol_emoji = "🟢" if self.volatility == VolatilityRegime.LOW else "🟡" if self.volatility == VolatilityRegime.MEDIUM else "🔴"
         trend_emoji = "📈" if "UP" in self.trend.value else "📉" if "DOWN" in self.trend.value else "➡️"
+        trade_status = "✅ 거래 가능" if self.should_trade() else "⛔ 거래 중단"
         
         return (
             f"{vol_emoji} 변동성: {self.volatility.value} (ATR: {self.atr_percent:.2f}%)\n"
             f"{trend_emoji} 추세: {self.trend.value} (ADX: {self.adx:.1f})\n"
             f"📊 RSI: {self.rsi:.1f}\n"
             f"🎯 추천 전략: {self.recommended_strategy}\n"
-            f"📏 포지션 배수: {self.position_size_multiplier:.1f}x"
+            f"📏 포지션 배수: {self.position_size_multiplier:.1f}x\n"
+            f"{trade_status}"
         )
 
 
