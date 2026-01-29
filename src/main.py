@@ -25,7 +25,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import settings
 from trader import AutoTrader
 from telegram_notifier import TelegramNotifier
-from risk_manager import RiskManager
 
 # KST Timezone helper for loguru
 def kst_time(*args):
@@ -66,7 +65,8 @@ class CryptoBotOrchestrator:
         self.check_interval = check_interval
         self.trader = AutoTrader()  # 하이브리드 전략 (ICT + Trend)
         self.notifier = TelegramNotifier()
-        self.risk_manager = RiskManager()
+        # trader의 risk_manager를 공유 (일일 리포트가 거래 기록을 정확히 반영하도록)
+        self.risk_manager = self.trader.risk_manager
         
         # logger.add(telegram_sink, level="INFO", format="{message}")
         
