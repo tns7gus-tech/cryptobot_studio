@@ -73,6 +73,7 @@ class CryptoBotOrchestrator:
         self.running = False
         self._last_report_date = None
         self._last_weekly_report_date = None  # 주간 리포트 추적
+        self._last_trend_alert_hour = None  # 시장 동향 알림 추적
         
         logger.info("🤖 CryptoBot Studio 초기화 완료")
     
@@ -167,6 +168,42 @@ class CryptoBotOrchestrator:
             except Exception as e:
                 logger.error(f"주간 리포트 발송 에러: {e}")
     
+    async def _check_market_trend_alert(self):
+        """
+        매일 23:50과 08:50에 시장 동향 알림 발송 (BTC 기준)
+        """
+        now = datetime.now(pytz.timezone(settings.timezone))
+        current_hour = now.hour
+        current_minute = now.minute
+        
+        # 23:50~23:55 또는 08:50~08:55에 발송
+        should_send = (
+            (current_hour == 23 and 50 <= current_minute < 55) or
+            (current_hour == 8 and 50 <= current_minute < 55)
+        )
+        
+        if should_send and self._last_trend_alert_hour != current_hour:
+            logger.info("📊 시장 동향 알림 생성 중... (BTC 기준)")
+            
+            try:
+                from market_analyzer import MarketAnalyzer
+                import pyupbit
+                
+                analyzer = MarketAnalyzer()
+                
+                # BTC만 분석
+                df = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=100)
+                if df is not None:
+                    btc_state = analyzer.analyze(df)
+                    if btc_state:
+                        alert_time = f"{current_hour:02d}:50"
+                        await self.notifier.send_market_trend_alert(btc_state, alert_time)
+                        self._last_trend_alert_hour = current_hour
+                        logger.success("📊 시장 동향 알림 발송 완료")
+            
+            except Exception as e:
+                logger.error(f"시장 동향 알림 에러: {e}")
+    
     async def monitor_loop(self):
         """
         메인 모니터링 루프 (멀티 심볼)
@@ -205,6 +242,9 @@ class CryptoBotOrchestrator:
                 
                 # 주간 시장 분석 리포트 체크 (일요일 09:00)
                 await self._check_weekly_report()
+                
+                # 시장 동향 알림 체크 (23:50, 08:50)
+                await self._check_market_trend_alert()
                 
                 # 다음 체크까지 대기
                 await asyncio.sleep(self.check_interval)

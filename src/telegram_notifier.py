@@ -272,6 +272,47 @@ class TelegramNotifier:
         
         return await self.send_message(message)
     
+    async def send_market_trend_alert(
+        self,
+        btc_state,  # MarketState
+        alert_time: str
+    ) -> bool:
+        """
+        일일 시장 동향 알림 (23:50, 08:50) - BTC 기준
+        
+        Args:
+            btc_state: BTC 시장 상태 (MarketState)
+            alert_time: 알림 시간 (예: "23:50", "08:50")
+        """
+        # 시장 동향 판별
+        if btc_state.is_bullish():
+            trend = "📈 상승장"
+            desc = "매수 기회 탐색 권장"
+        elif btc_state.is_bearish():
+            trend = "📉 하락장"
+            desc = "신규 매수 자제, 기존 포지션 주의"
+        else:
+            trend = "➡️ 횡보장"
+            desc = "방향성 확인 후 진입 권장"
+        
+        message = f"""
+📊 <b>시장 동향 알림</b> ({alert_time})
+━━━━━━━━━━━━━━━━━━━━━
+
+{trend}
+
+<b>BTC 지표:</b>
+• 추세: {btc_state.trend.value}
+• ADX: {btc_state.adx:.1f}
+• RSI: {btc_state.rsi:.1f}
+• 변동성: {btc_state.volatility.value}
+
+💡 {desc}
+━━━━━━━━━━━━━━━━━━━━━
+        """.strip()
+        
+        return await self.send_message(message)
+    
     async def send_weekly_market_report(
         self,
         market_states: dict
